@@ -1,0 +1,1500 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>카드 게임 통합본</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    html, body, #root { margin: 0; padding: 0; min-height: 100%; background: #0f172a; }
+    body { font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="module">
+import React, { useState, useEffect } from "https://esm.sh/react@18.2.0";
+import { createRoot } from "https://esm.sh/react-dom@18.2.0/client";
+import { Sword, Shield, Zap, Heart, RefreshCw, Skull, ArrowRightCircle, Lock, Save, PlusCircle, Trash2, Store, Coins, AlertTriangle, Info, Maximize, Gift, Book, Trophy, Settings, FastForward, Eraser, Download, Upload, Search, HelpCircle, FileQuestion, Star, Box, PackageOpen } from "https://esm.sh/lucide-react@0.468.0";
+import { initializeApp, getApps, getApp } from "https://esm.sh/firebase@10.12.2/app";
+import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://esm.sh/firebase@10.12.2/auth";
+import { getFirestore, doc, setDoc, getDoc } from "https://esm.sh/firebase@10.12.2/firestore";
+const firebaseConfig = JSON.parse(typeof __firebase_config !== "undefined" ? __firebase_config : '{"projectId":"dummy"}');
+let app, auth, db;
+try {
+  if (!getApps().length) {
+    app = initializeApp(firebaseConfig);
+  } else {
+    app = getApp();
+  }
+  auth = getAuth(app);
+  db = getFirestore(app);
+} catch (e) {
+  console.error("Firebase Initialization Error:", e);
+}
+const appId = typeof __app_id !== "undefined" ? __app_id : "default-app-id";
+const styles = `
+  @keyframes drawCard { 0% { transform: translateY(100px) scale(0.8); opacity: 0; } 100% { transform: translateY(0) scale(1); opacity: 1; } }
+  @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-5px) rotate(-5deg); } 75% { transform: translateX(5px) rotate(5deg); } }
+  @keyframes pulseGlow { 0%, 100% { box-shadow: 0 0 15px rgba(234,179,8,0.5); } 50% { box-shadow: 0 0 30px rgba(234,179,8,1); } }
+  .animate-draw { animation: drawCard 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; opacity: 0; }
+  .animate-shake { animation: shake 0.5s infinite; }
+  .animate-glow { animation: pulseGlow 2s infinite; }
+  .hide-scrollbar::-webkit-scrollbar { display: none; }
+  .tooltip-trigger .tooltip-content { visibility: hidden; opacity: 0; transition: opacity 0.2s; }
+  .tooltip-trigger:hover .tooltip-content, .tooltip-trigger:focus .tooltip-content, .tooltip-trigger:focus-within .tooltip-content, .tooltip-trigger:active .tooltip-content { visibility: visible; opacity: 1; }
+  .legendary-bg { background: linear-gradient(135deg, rgba(15,23,42,1) 0%, rgba(69,26,3,0.8) 100%); }
+  .special-bg { background: linear-gradient(135deg, rgba(30,0,50,1) 0%, rgba(100,0,100,0.8) 100%); }
+`;
+const RELIC_LIBRARY = [
+  { id: "flawless_code", name: "\uBB34\uACB0\uC810 \uC18C\uC2A4 \uCF54\uB4DC", type: "buff", color: "text-blue-400", desc: "\uC2DC\uC791 \uB9C8\uB098 \uBC0F \uCD5C\uB300 \uB9C8\uB098\uAC00 \uC601\uAD6C\uC801\uC73C\uB85C 1 \uC99D\uAC00\uD569\uB2C8\uB2E4." },
+  { id: "master_vocab", name: "\uB9C8\uC2A4\uD130 \uC601\uB2E8\uC5B4\uC7A5", type: "buff", color: "text-yellow-400", desc: "\uC804\uD22C \uC9C4\uC785 \uC2DC \uB371\uC758 \uBAA8\uB4E0 \uCE74\uB4DC\uAC00 \uC989\uC2DC \uAC15\uD654\uB41C \uC0C1\uD0DC\uB85C \uC0AC\uC6A9\uB429\uB2C8\uB2E4." },
+  { id: "phoenix_feather", name: "\uBD88\uC0AC\uC870\uC758 \uAE43\uD138", type: "special", color: "text-red-400", desc: "\uC804\uD22C \uC911 \uCCB4\uB825\uC774 0\uC774 \uB420 \uB54C, \uC989\uC2DC \uCCB4\uB825\uC744 100% \uD68C\uBCF5\uD558\uACE0 \uC774 \uC720\uBB3C\uC740 \uC18C\uBA78\uD569\uB2C8\uB2E4." },
+  { id: "absolute_eye", name: "\uC808\uB300\uC790\uC758 \uB208", type: "combat", color: "text-purple-400", desc: "\uBCF4\uC2A4\uC640 \uC804\uD22C \uC2DC\uC791 \uC2DC, \uBCF4\uC2A4\uC758 \uCCB4\uB825\uC744 30% \uAE4E\uACE0 \uC2DC\uC791\uD569\uB2C8\uB2E4." },
+  { id: "black_rose_corset", name: "\uAC80\uC740 \uC7A5\uBBF8 \uCF54\uB974\uC14B", type: "defense", color: "text-fuchsia-400", desc: "\uB9E4 \uD134 \uC2DC\uC791 \uC2DC \uBC29\uC5B4\uB3C4 10 \uD68D\uB4DD, \uC804\uD22C \uC2B9\uB9AC \uC2DC \uC783\uC740 \uCCB4\uB825\uC758 20% \uD68C\uBCF5." },
+  { id: "lumia_backpack", name: "\uB8E8\uBBF8\uC544 \uC0DD\uC874 \uBC30\uB0AD", type: "defense", color: "text-emerald-400", desc: "\uD55C \uD134\uC5D0 \uCE74\uB4DC\uB97C 5\uC7A5 \uC774\uC0C1 \uC0AC\uC6A9\uD558\uBA74, \uADF8 \uD134\uC5D0 \uBC1B\uB294 \uBAA8\uB4E0 \uD53C\uD574\uB7C9\uC774 1\uB85C \uACE0\uC815\uB429\uB2C8\uB2E4." },
+  { id: "holy_sword_hilt", name: "\uC131\uAC80\uC758 \uCE7C\uC790\uB8E8", type: "combat", color: "text-yellow-300", desc: "\uB9E4 \uD134 \uCCAB \uBC88\uC9F8\uB85C \uC0AC\uC6A9\uD558\uB294 \uACF5\uACA9 \uCE74\uB4DC\uC758 \uD53C\uD574\uB7C9\uC774 3\uBC30\uAC00 \uB429\uB2C8\uB2E4." },
+  { id: "philosophers_stone", name: "\uD604\uC790\uC758 \uB3CC", type: "magic", color: "text-cyan-400", desc: "\uB9E4 \uD134 \uC2DC\uC791 \uC2DC, \uC190\uC5D0 0\uCF54\uC2A4\uD2B8 \uC804\uC124 \uACF5\uACA9 \uCE74\uB4DC 1\uC7A5\uC744 \uC784\uC2DC \uC0DD\uC131\uD569\uB2C8\uB2E4." },
+  { id: "golden_chalice", name: "\uD669\uAE08\uC758 \uC131\uBC30", type: "utility", color: "text-yellow-500", desc: "\uC804\uD22C \uC2B9\uB9AC \uC2DC \uC5BB\uB294 \uD06C\uB808\uB527\uC774 3\uBC30\uB85C \uC99D\uAC00\uD569\uB2C8\uB2E4." },
+  { id: "hourglass", name: "\uC2DC\uAC04\uC758 \uBAA8\uB798\uC2DC\uACC4", type: "magic", color: "text-blue-300", desc: "\uD134 \uC885\uB8CC \uC2DC 10% \uD655\uB960\uB85C \uC801\uC758 \uD134\uC744 \uD1B5\uC9F8\uB85C \uAC74\uB108\uB701\uB2C8\uB2E4." },
+  { id: "spaghetti_code", name: "\uC2A4\uD30C\uAC8C\uD2F0 \uCF54\uB4DC", type: "curse", color: "text-gray-500", desc: "[\uC800\uC8FC] \uB9E4 \uD134 \uC2DC\uC791 \uC2DC 1~3\uC758 \uBB34\uC791\uC704 \uD53C\uD574\uB97C \uC785\uC2B5\uB2C8\uB2E4." },
+  { id: "heavy_shackles", name: "\uBB34\uAC70\uC6B4 \uC871\uC1C4", type: "curse", color: "text-gray-500", desc: "[\uC800\uC8FC] \uB9E4 \uD134 \uBF51\uB294 \uCE74\uB4DC \uC7A5\uC218\uAC00 1\uC7A5 \uAC10\uC18C\uD569\uB2C8\uB2E4." },
+  { id: "forbidden_timer_curse", name: "\uAE08\uC9C0\uAD6C\uC5ED\uC758 \uD0C0\uC774\uBA38", type: "curse", color: "text-gray-500", desc: "[\uC800\uC8FC] \uC804\uD22C \uC911 5\uD134\uC774 \uACBD\uACFC\uD560 \uB54C\uB9C8\uB2E4 \uCD5C\uB300 \uCCB4\uB825\uC774 5\uC529 \uAE4E\uC785\uB2C8\uB2E4." },
+  { id: "corroded_shield", name: "\uBD80\uC2DD\uB41C \uBC29\uD328", type: "curse", color: "text-gray-500", desc: "[\uC800\uC8FC] \uCE74\uB4DC\uB85C \uC5BB\uB294 \uBC29\uC5B4\uB3C4\uAC00 30% \uAC10\uC18C\uD569\uB2C8\uB2E4." },
+  { id: "cursed_mana_stone", name: "\uC800\uC8FC\uBC1B\uC740 \uB9C8\uB098\uC11D", type: "curse", color: "text-gray-500", desc: "[\uC800\uC8FC] \uB9E4 \uD134 \uD68C\uBCF5\uD558\uB294 \uB9C8\uB098\uAC00 1 \uAC10\uC18C\uD569\uB2C8\uB2E4. (\uCD5C\uC18C 1)" },
+  { id: "leaky_pocket", name: "\uAD6C\uBA4D \uB09C \uC8FC\uBA38\uB2C8", type: "curse", color: "text-gray-500", desc: "[\uC800\uC8FC] \uC0C1\uC810\uC5D0 \uC785\uC7A5\uD560 \uB54C \uBCF4\uC720 \uD06C\uB808\uB527\uC758 \uC808\uBC18\uC744 \uC783\uC2B5\uB2C8\uB2E4." },
+  { id: "dull_reflexes", name: "\uB454\uD55C \uBC18\uC0AC\uC2E0\uACBD", type: "curse", color: "text-gray-500", desc: "[\uC800\uC8FC] \uB9E4 \uC804\uD22C \uC2DC\uC791 \uC2DC \uCDE8\uC57D 2, \uC57D\uD654 2\uB97C \uC5BB\uC2B5\uB2C8\uB2E4." },
+  { id: "chronic_fatigue", name: "\uB9CC\uC131 \uD53C\uB85C \uC99D\uD6C4\uAD70", type: "curse", color: "text-gray-500", desc: "[\uC800\uC8FC] \uBCF4\uC0C1 \uD654\uBA74\uC5D0\uC11C \uCCB4\uB825\uC744 \uD68C\uBCF5\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." },
+  { id: "warrior_whetstone", name: "\uC804\uC0AC\uC758 \uC22B\uB3CC", type: "combat", color: "text-red-400", desc: "\uC804\uD22C \uC2DC\uC791 \uC2DC \uADFC\uB825\uC744 1 \uD68D\uB4DD\uD569\uB2C8\uB2E4." },
+  { id: "blood_shield", name: "\uD53C \uBB3B\uC740 \uBC29\uD328", type: "defense", color: "text-red-500", desc: "\uC804\uD22C \uC2DC\uC791 \uC2DC \uBC29\uC5B4\uB3C4\uB97C 10 \uD68D\uB4DD\uD569\uB2C8\uB2E4." },
+  { id: "weakness_analyzer", name: "\uC57D\uC810 \uBD84\uC11D\uACBD", type: "utility", color: "text-purple-300", desc: "\uC804\uD22C \uC2DC\uC791 \uC2DC \uBB34\uC791\uC704 \uC801 \uD558\uB098\uC5D0\uAC8C \uCDE8\uC57D 2\uB97C \uBD80\uC5EC\uD569\uB2C8\uB2E4." },
+  { id: "ancient_mana_stone", name: "\uACE0\uB300 \uB9C8\uB098\uC11D", type: "magic", color: "text-blue-400", desc: "\uCCAB \uD134 \uC2DC\uC791 \uC2DC \uB9C8\uB098\uB97C 2 \uCD94\uAC00\uB85C \uC5BB\uC2B5\uB2C8\uB2E4." },
+  { id: "crystal_ball", name: "\uC218\uC815 \uAD6C\uC2AC", type: "magic", color: "text-indigo-400", desc: "\uCCAB \uD134 \uC2DC\uC791 \uC2DC \uCE74\uB4DC\uB97C 2\uC7A5 \uB354 \uBF51\uC2B5\uB2C8\uB2E4." },
+  { id: "midterm_note", name: "\uC911\uAC04\uACE0\uC0AC \uC694\uC810\uC815\uB9AC \uB178\uD2B8", type: "utility", color: "text-slate-300", desc: "\uC804\uD22C \uC2DC\uC791 \uC2DC \uBAA8\uB4E0 \uC801\uC758 \uCCB4\uB825\uC744 10 \uAE4E\uACE0 \uC2DC\uC791\uD569\uB2C8\uB2E4." },
+  { id: "fairy_tear", name: "\uC694\uC815\uC758 \uB208\uBB3C", type: "heal", color: "text-emerald-300", desc: "\uBCF4\uC2A4\uC640 \uC804\uD22C \uC2DC\uC791 \uC2DC \uCCB4\uB825\uC744 20 \uD68C\uBCF5\uD569\uB2C8\uB2E4." },
+  { id: "demon_horn", name: "\uC545\uB9C8\uC758 \uBFD4", type: "combat", color: "text-red-700", desc: "\uC804\uD22C \uC2DC\uC791 \uC2DC \uBAA8\uB4E0 \uC801\uC5D0\uAC8C \uC57D\uD654 1, \uC790\uC2E0\uC5D0\uAC8C \uCDE8\uC57D 1\uC744 \uBD80\uC5EC\uD569\uB2C8\uB2E4." },
+  { id: "heavy_anchor", name: "\uBB35\uC9C1\uD55C \uB2FB", type: "defense", color: "text-slate-500", desc: "\uD68D\uB4DD \uC2DC \uCD5C\uB300 \uCCB4\uB825\uC774 10 \uC601\uAD6C \uC99D\uAC00\uD569\uB2C8\uB2E4." },
+  { id: "endless_pouch", name: "\uB05D\uC5C6\uB294 \uC8FC\uBA38\uB2C8", type: "utility", color: "text-orange-400", desc: "\uB9E4 \uD134 \uC2DC\uC791 \uC2DC \uCE74\uB4DC\uB97C 1\uC7A5 \uCD94\uAC00\uB85C \uBF51\uC2B5\uB2C8\uB2E4." },
+  { id: "perfect_code_block", name: "\uC644\uBCBD\uD55C \uCF54\uB4DC \uBB49\uCE58", type: "defense", color: "text-blue-200", desc: "\uB9E4 \uD134 \uC2DC\uC791 \uC2DC \uBC29\uC5B4\uB3C4\uB97C 3 \uC5BB\uC2B5\uB2C8\uB2E4." },
+  { id: "healing_totem", name: "\uCE58\uC720\uC758 \uD1A0\uD15C", type: "heal", color: "text-green-400", desc: "\uD134 \uC885\uB8CC \uC2DC \uBC29\uC5B4\uB3C4\uAC00 1 \uC774\uC0C1 \uB0A8\uC544\uC788\uB2E4\uBA74 \uCCB4\uB825\uC744 2 \uD68C\uBCF5\uD569\uB2C8\uB2E4." },
+  { id: "pact_of_ruin", name: "\uD30C\uBA78\uC758 \uACC4\uC57D\uC11C", type: "combat", color: "text-red-800", desc: "\uB9E4 \uD134 \uC2DC\uC791 \uC2DC 1\uC758 \uD53C\uD574\uB97C \uC785\uACE0, \uCE74\uB4DC\uB97C 1\uC7A5 \uB354 \uBF51\uC2B5\uB2C8\uB2E4." },
+  { id: "poisoned_chalice", name: "\uB3C5\uC774 \uB4E0 \uC131\uBC30", type: "combat", color: "text-green-600", desc: "\uB9E4 \uD134 \uC2DC\uC791 \uC2DC 2\uC758 \uD53C\uD574\uB97C \uC785\uACE0, \uADFC\uB825\uC744 1 \uC5BB\uC2B5\uB2C8\uB2E4." },
+  { id: "moss_of_regen", name: "\uC7AC\uC0DD\uC758 \uC774\uB07C", type: "heal", color: "text-emerald-500", desc: "\uD134 \uC885\uB8CC \uC2DC \uB0A8\uC740 \uB9C8\uB098 1\uB2F9 \uCCB4\uB825\uC744 2 \uD68C\uBCF5\uD569\uB2C8\uB2E4." },
+  { id: "censer_of_tranquility", name: "\uD3C9\uC628\uC758 \uD5A5\uB85C", type: "utility", color: "text-teal-300", desc: "\uB9E4 \uD134 \uC885\uB8CC \uC2DC \uBAA8\uB4E0 \uB514\uBC84\uD504(\uC57D\uD654/\uCDE8\uC57D \uB4F1) \uD134\uC774 1\uC529 \uB354 \uC904\uC5B4\uB4ED\uB2C8\uB2E4." },
+  { id: "light_feather", name: "\uAC00\uBCBC\uC6B4 \uAE43\uD138", type: "defense", color: "text-white", desc: "\uB9E4 \uD134 \uBC29\uC5B4 \uCE74\uB4DC\uC758 \uD6A8\uC728\uC774 \uC99D\uAC00\uD569\uB2C8\uB2E4. (\uB9E4 \uD134 \uBBFC\uCCA9 1 \uD68D\uB4DD/\uC0C1\uC2E4)" },
+  { id: "ninja_shuriken", name: "\uB2CC\uC790\uC758 \uC218\uB9AC\uAC80", type: "combat", color: "text-slate-400", desc: "\uD55C \uD134\uC5D0 \uCE74\uB4DC\uB97C 3\uC7A5 \uC0AC\uC6A9\uD560 \uB54C\uB9C8\uB2E4 \uBB34\uC791\uC704 \uC801\uC5D0\uAC8C 5 \uD53C\uD574\uB97C \uC90D\uB2C8\uB2E4." },
+  { id: "gothic_choker", name: "\uACE0\uB515\uD48D \uB808\uC774\uC2A4 \uCD08\uCEE4", type: "utility", color: "text-fuchsia-300", desc: "\uC2A4\uD0AC \uBC29\uC5B4 \uCE74\uB4DC\uB97C \uC0AC\uC6A9\uD560 \uB54C\uB9C8\uB2E4 10% \uD655\uB960\uB85C \uCE74\uB4DC\uB97C 1\uC7A5 \uBF51\uC2B5\uB2C8\uB2E4." },
+  { id: "spiked_necklace", name: "\uAC00\uC2DC \uB3CB\uCE5C \uBAA9\uAC78\uC774", type: "combat", color: "text-red-600", desc: "\uACF5\uACA9 \uCE74\uB4DC\uB97C \uC0AC\uC6A9\uD560 \uB54C 1 \uD53C\uD574\uB97C \uC785\uACE0, \uCD5C\uC885 \uD53C\uD574\uB7C9\uC774 2 \uC99D\uAC00\uD569\uB2C8\uB2E4." },
+  { id: "giant_glove", name: "\uAC70\uC778\uC758 \uC7A5\uAC11", type: "defense", color: "text-orange-700", desc: "\uC18C\uBAA8 \uB9C8\uB098\uAC00 2 \uC774\uC0C1\uC778 \uCE74\uB4DC\uB97C \uC0AC\uC6A9 \uC2DC \uBC29\uC5B4\uB3C4\uB97C 4 \uC5BB\uC2B5\uB2C8\uB2E4." },
+  { id: "secret_dagger", name: "\uC740\uBC00\uD55C \uB2E8\uAC80", type: "magic", color: "text-slate-500", desc: "0\uCF54\uC2A4\uD2B8 \uCE74\uB4DC\uB97C \uC0AC\uC6A9\uD560 \uB54C 1\uB9C8\uB098\uB97C \uD68C\uBCF5\uD569\uB2C8\uB2E4. (\uD134\uB2F9 1\uD68C)" },
+  { id: "wizard_wand", name: "\uB9C8\uBC95\uC0AC\uC758 \uC9C0\uD321\uC774", type: "defense", color: "text-blue-500", desc: "\uC2A4\uD0AC \uCE74\uB4DC\uB97C \uC0AC\uC6A9\uD560 \uB54C\uB9C8\uB2E4 \uC774\uBC88 \uC804\uD22C \uBAA8\uB4E0 \uBC29\uC5B4 \uCE74\uB4DC \uD6A8\uC728\uC774 1 \uC99D\uAC00." },
+  { id: "thorns_armor", name: "\uAC00\uC2DC \uAC11\uC637", type: "combat", color: "text-green-700", desc: "\uC801\uC5D0\uAC8C \uD53C\uD574\uB97C \uC785\uC744 \uB54C\uB9C8\uB2E4 3\uC758 \uD53C\uD574\uB97C \uB418\uB3CC\uB824\uC90D\uB2C8\uB2E4." },
+  { id: "turtle_shell", name: "\uAC70\uBD81\uC774 \uB4F1\uB531\uC9C0", type: "defense", color: "text-green-500", desc: "\uB9E4 \uD134 \uCC98\uC74C\uC73C\uB85C \uBC1B\uB294 \uACF5\uACA9 \uD53C\uD574\uB97C 3 \uAC10\uC18C\uC2DC\uD0B5\uB2C8\uB2E4." },
+  { id: "vampire_teeth", name: "\uD761\uD608\uADC0\uC758 \uC774\uBE68", type: "heal", color: "text-red-600", desc: "\uC801 \uCC98\uCE58 \uC2DC \uCCB4\uB825\uC744 3 \uD68C\uBCF5\uD569\uB2C8\uB2E4." },
+  { id: "executioner_axe", name: "\uCC98\uD615\uC778\uC758 \uB3C4\uB07C", type: "combat", color: "text-slate-600", desc: "\uCCB4\uB825\uC774 20% \uC774\uD558\uC778 \uC801 \uD0C0\uACA9 \uC2DC \uD53C\uD574\uB7C9\uC774 1.5\uBC30 \uC99D\uAC00\uD569\uB2C8\uB2E4." },
+  { id: "guardian_shield", name: "\uC218\uD638\uC790\uC758 \uBC29\uD328", type: "defense", color: "text-amber-200", desc: "15 \uC774\uC0C1\uC758 \uD070 \uD53C\uD574\uB97C \uBC1B\uC744 \uB54C, \uD55C \uBC88 \uD53C\uD574\uB97C \uC808\uBC18\uC73C\uB85C \uC904\uC785\uB2C8\uB2E4." },
+  { id: "blessed_coin", name: "\uCD95\uBCF5\uBC1B\uC740 \uB3D9\uC804", type: "utility", color: "text-yellow-300", desc: "\uC804\uD22C \uC2B9\uB9AC \uC2DC \uC5BB\uB294 \uD06C\uB808\uB527\uC774 20% \uC99D\uAC00\uD569\uB2C8\uB2E4." },
+  { id: "old_vocab_book", name: "\uB0A1\uC740 \uC601\uB2E8\uC5B4\uC7A5", type: "utility", color: "text-yellow-700", desc: "\uC804\uD22C \uC2B9\uB9AC \uC2DC 10% \uD655\uB960\uB85C \uCD5C\uB300 \uCCB4\uB825\uC774 1 \uC601\uAD6C \uC99D\uAC00\uD569\uB2C8\uB2E4." },
+  { id: "first_aid_kit", name: "\uAD6C\uAE09 \uC0C1\uC790", type: "heal", color: "text-red-500", desc: "\uBCF4\uC0C1 \uD654\uBA74\uC5D0\uC11C \uCCB4\uB825 \uD68C\uBCF5\uB7C9\uC774 30% \uC99D\uAC00\uD569\uB2C8\uB2E4." },
+  { id: "gourmet_lunchbox", name: "\uBBF8\uC2DD\uAC00\uC758 \uB3C4\uC2DC\uB77D", type: "heal", color: "text-orange-300", desc: "\uC0C1\uC810\uC5D0\uC11C \uBB3C\uD488\uC744 \uAD6C\uB9E4\uD560 \uB54C\uB9C8\uB2E4 \uCCB4\uB825\uC744 5 \uD68C\uBCF5\uD569\uB2C8\uB2E4." },
+  { id: "merchant_membership", name: "\uC0C1\uC778\uC758 \uBA64\uBC84\uC2ED \uCE74\uB4DC", type: "utility", color: "text-amber-500", desc: "\uC0C1\uC810\uC758 \uBAA8\uB4E0 \uAC00\uACA9\uC774 20% \uD560\uC778\uB429\uB2C8\uB2E4." },
+  { id: "lucky_clover", name: "\uD589\uC6B4\uC758 \uB124\uC78E\uD074\uB85C\uBC84", type: "utility", color: "text-green-400", desc: "\uCE74\uB4DC \uBCF4\uC0C1\uC5D0\uC11C \uD76C\uADC0/\uC804\uC124 \uCE74\uB4DC\uAC00 \uB4F1\uC7A5\uD560 \uD655\uB960\uC774 \uC18C\uD3ED \uC99D\uAC00\uD569\uB2C8\uB2E4." },
+  { id: "mercenary_contract", name: "\uC6A9\uBCD1\uC758 \uACC4\uC57D\uC11C", type: "combat", color: "text-amber-700", desc: "\uBCF4\uC720\uD55C \uD06C\uB808\uB527 100\uB2F9 \uACF5\uACA9 \uCE74\uB4DC\uC758 \uAE30\uBCF8 \uD53C\uD574\uB7C9\uC774 1\uC529 \uC99D\uAC00\uD569\uB2C8\uB2E4." },
+  { id: "pot_of_greed", name: "\uD0D0\uC695\uC758 \uD56D\uC544\uB9AC", type: "utility", color: "text-emerald-600", desc: "\uC2B9\uB9AC \uBCF4\uC0C1 \uD06C\uB808\uB527\uC774 2\uBC30\uAC00 \uB418\uC9C0\uB9CC, \uCCB4\uB825\uC744 \uD68C\uBCF5\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." },
+  { id: "standard_backpack", name: "\uBCF4\uAE09\uD615 \uBC30\uB0AD", type: "defense", color: "text-slate-400", desc: "\uB371 \uC7A5\uC218\uAC00 30\uC7A5 \uC774\uC0C1\uC77C \uB54C, \uB9E4 \uD134 \uBC29\uC5B4\uB3C4\uB97C 5 \uD68D\uB4DD\uD569\uB2C8\uB2E4." }
+];
+const CARD_LIBRARY = [
+  { id: "strike", name: "\uD0C0\uACA9", type: "attack", cost: 1, rarity: "common", damage: 8, desc: "\uC801\uC5D0\uAC8C 8\uC758 \uD53C\uD574\uB97C \uC90D\uB2C8\uB2E4." },
+  { id: "defend", name: "\uBC29\uC5B4", type: "skill", cost: 1, rarity: "common", block: 6, desc: "6\uC758 \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uC2B5\uB2C8\uB2E4." },
+  { id: "heavy_strike", name: "\uAC15\uD0C0", type: "attack", cost: 2, rarity: "common", damage: 18, desc: "\uC801\uC5D0\uAC8C 18\uC758 \uD53C\uD574\uB97C \uC90D\uB2C8\uB2E4." },
+  { id: "shield_bash", name: "\uBC29\uD328 \uBC00\uCE58\uAE30", type: "attack", cost: 1, rarity: "common", damage: 6, block: 5, desc: "6\uC758 \uD53C\uD574\uB97C \uC8FC\uACE0 5\uC758 \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uC2B5\uB2C8\uB2E4." },
+  { id: "focus", name: "\uC9D1\uC911", type: "skill", cost: 1, rarity: "common", draw: 2, desc: "\uCE74\uB4DC\uB97C 2\uC7A5 \uBF51\uC2B5\uB2C8\uB2E4." },
+  { id: "stab", name: "\uCC0C\uB974\uAE30", type: "attack", cost: 1, rarity: "common", damage: 6, draw: 1, desc: "6\uC758 \uD53C\uD574\uB97C \uC8FC\uACE0 \uCE74\uB4DC\uB97C 1\uC7A5 \uBF51\uC2B5\uB2C8\uB2E4." },
+  { id: "uppercut", name: "\uC62C\uB824\uCE58\uAE30", type: "attack", cost: 2, rarity: "common", damage: 15, desc: "\uC801\uC5D0\uAC8C 15\uC758 \uD53C\uD574\uB97C \uC90D\uB2C8\uB2E4." },
+  { id: "club_smash", name: "\uBABD\uB465\uC774 \uCC1C\uC9C8", type: "attack", cost: 2, rarity: "common", damage: 14, enemyWeak: 1, desc: "14\uC758 \uD53C\uD574\uB97C \uC8FC\uACE0 1\uD134\uAC04 \uC57D\uD654\uB97C \uBD80\uC5EC\uD569\uB2C8\uB2E4." },
+  { id: "quick_strike", name: "\uC2E0\uC18D\uD55C \uD0C0\uACA9", type: "attack", cost: 0, rarity: "common", damage: 4, desc: "\uC801\uC5D0\uAC8C 4\uC758 \uD53C\uD574\uB97C \uC90D\uB2C8\uB2E4." },
+  { id: "angry_strike", name: "\uBD84\uB178\uC758 \uC77C\uACA9", type: "attack", cost: 1, rarity: "common", damage: 12, selfDamage: 2, desc: "12\uC758 \uD53C\uD574\uB97C \uC8FC\uC9C0\uB9CC \uCCB4\uB825\uC744 2 \uC783\uC2B5\uB2C8\uB2E4." },
+  { id: "sweep", name: "\uD729\uC4F8\uAE30", type: "attack", cost: 1, rarity: "common", damage: 5, multiHit: 2, desc: "5\uC758 \uD53C\uD574\uB97C 2\uBC88 \uC5F0\uC18D \uC90D\uB2C8\uB2E4." },
+  { id: "counter", name: "\uCE74\uC6B4\uD130", type: "attack", cost: 1, rarity: "common", damage: 4, block: 8, desc: "4\uC758 \uD53C\uD574\uB97C \uC8FC\uACE0 8\uC758 \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uC2B5\uB2C8\uB2E4." },
+  { id: "crouch", name: "\uC6C5\uD06C\uB9AC\uAE30", type: "skill", cost: 2, rarity: "common", block: 14, desc: "14\uC758 \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uC2B5\uB2C8\uB2E4." },
+  { id: "dodge", name: "\uD68C\uD53C", type: "skill", cost: 0, rarity: "common", block: 4, desc: "4\uC758 \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uC2B5\uB2C8\uB2E4." },
+  { id: "taunt", name: "\uB3C4\uBC1C", type: "skill", cost: 1, rarity: "common", enemyVuln: 1, enemyWeak: 1, desc: "\uC801\uC5D0\uAC8C 1\uD134\uAC04 \uC57D\uD654\uC640 \uCDE8\uC57D\uC744 \uBD80\uC5EC\uD569\uB2C8\uB2E4." },
+  { id: "combat_prep", name: "\uC804\uD22C \uC900\uBE44", type: "skill", cost: 1, rarity: "common", block: 4, selfStrength: 1, desc: "4\uC758 \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uACE0 \uADFC\uB825\uC744 1 \uC5BB\uC2B5\uB2C8\uB2E4." },
+  { id: "first_aid", name: "\uC751\uAE09 \uCC98\uCE58", type: "skill", cost: 1, rarity: "common", heal: 5, desc: "\uCCB4\uB825\uC744 5 \uD68C\uBCF5\uD569\uB2C8\uB2E4." },
+  { id: "maintenance", name: "\uC815\uBE44", type: "skill", cost: 1, rarity: "common", block: 5, draw: 1, desc: "5\uC758 \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uACE0 \uCE74\uB4DC\uB97C 1\uC7A5 \uBF51\uC2B5\uB2C8\uB2E4." },
+  { id: "poison_dart", name: "\uB3C5\uCE68", type: "attack", cost: 1, rarity: "common", damage: 5, draw: 1, desc: "5\uC758 \uD53C\uD574\uB97C \uC8FC\uACE0 \uCE74\uB4DC\uB97C 1\uC7A5 \uBF51\uC2B5\uB2C8\uB2E4." },
+  { id: "meditate", name: "\uBA85\uC0C1", type: "skill", cost: 1, rarity: "common", manaGain: 2, block: 5, desc: "\uB9C8\uB098\uB97C 2 \uD68C\uBCF5\uD558\uACE0 5\uC758 \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uC2B5\uB2C8\uB2E4." },
+  { id: "reckless_charge", name: "\uBB34\uBAA8\uD55C \uB3CC\uC9C4", type: "attack", cost: 1, rarity: "common", damage: 15, selfDamage: 2, desc: "15\uC758 \uD53C\uD574\uB97C \uC8FC\uC9C0\uB9CC \uCCB4\uB825\uC744 2 \uC783\uC2B5\uB2C8\uB2E4." },
+  { id: "toxic_strike", name: "\uB9F9\uB3C5 \uD0C0\uACA9", type: "attack", cost: 1, rarity: "common", damage: 4, multiHit: 2, enemyVuln: 1, desc: "4\uC758 \uD53C\uD574\uB97C 2\uBC88 \uC5F0\uC18D \uC8FC\uACE0 1\uD134 \uCDE8\uC57D\uC744 \uBD80\uC5EC\uD569\uB2C8\uB2E4." },
+  { id: "warcry", name: "\uC804\uC7A5\uC758 \uD568\uC131", type: "skill", cost: 1, rarity: "common", block: 8, draw: 2, desc: "8\uC758 \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uACE0 \uCE74\uB4DC\uB97C 2\uC7A5 \uBF51\uC2B5\uB2C8\uB2E4." },
+  { id: "sand_throw", name: "\uBAA8\uB798 \uBFCC\uB9AC\uAE30", type: "skill", cost: 1, rarity: "common", damage: 3, enemyWeak: 1, desc: "3\uC758 \uD53C\uD574\uB97C \uC8FC\uACE0 1\uD134\uAC04 \uC57D\uD654\uB97C \uBD80\uC5EC\uD569\uB2C8\uB2E4." },
+  { id: "bone_crush", name: "\uBF08 \uBD80\uC218\uAE30", type: "attack", cost: 2, rarity: "common", damage: 12, enemyVuln: 1, desc: "12\uC758 \uD53C\uD574\uB97C \uC8FC\uACE0 1\uD134\uAC04 \uCDE8\uC57D\uC744 \uBD80\uC5EC\uD569\uB2C8\uB2E4." },
+  { id: "throwing_dagger", name: "\uD22C\uCC99 \uB2E8\uAC80", type: "attack", cost: 0, rarity: "common", damage: 5, draw: 1, desc: "5\uC758 \uD53C\uD574\uB97C \uC8FC\uACE0 \uCE74\uB4DC\uB97C 1\uC7A5 \uBF51\uC2B5\uB2C8\uB2E4." },
+  { id: "double_cut", name: "\uC774\uC911 \uBCA0\uAE30", type: "attack", cost: 2, rarity: "common", damage: 7, multiHit: 2, desc: "7\uC758 \uD53C\uD574\uB97C 2\uBC88 \uC5F0\uC18D \uC90D\uB2C8\uB2E4." },
+  { id: "vital_strike", name: "\uAE09\uC18C \uCC0C\uB974\uAE30", type: "attack", cost: 1, rarity: "common", damage: 10, enemyWeak: 1, desc: "10\uC758 \uD53C\uD574\uB97C \uC8FC\uACE0 1\uD134\uAC04 \uC57D\uD654\uB97C \uBD80\uC5EC\uD569\uB2C8\uB2E4." },
+  { id: "old_shield", name: "\uB0A1\uC740 \uBC29\uD328", type: "skill", cost: 0, rarity: "common", block: 5, desc: "5\uC758 \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uC2B5\uB2C8\uB2E4." },
+  { id: "firm_stand", name: "\uAD73\uAC74\uD55C \uBC84\uD2F0\uAE30", type: "skill", cost: 1, rarity: "common", block: 12, selfDamage: 1, desc: "12\uC758 \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uC9C0\uB9CC \uCCB4\uB825\uC744 1 \uC783\uC2B5\uB2C8\uB2E4." },
+  { id: "kihap", name: "\uAE30\uD569", type: "skill", cost: 1, rarity: "common", manaGain: 1, selfStrength: 1, desc: "\uB9C8\uB098\uB97C 1 \uC5BB\uACE0 \uADFC\uB825\uC744 1 \uC5BB\uC2B5\uB2C8\uB2E4." },
+  { id: "short_rest", name: "\uC9E7\uC740 \uD734\uC2DD", type: "skill", cost: 1, rarity: "common", manaGain: 1, heal: 8, desc: "\uB9C8\uB098\uB97C 1 \uC5BB\uACE0 \uCCB4\uB825\uC744 8 \uD68C\uBCF5\uD569\uB2C8\uB2E4." },
+  { id: "gamblers_strike", name: "\uB3C4\uBC15\uC758 \uC77C\uACA9", type: "attack", cost: 1, rarity: "common", gamble: true, gambleWinChance: 0.5, winDamage: 20, loseDamage: 1, desc: "50% \uD655\uB960\uB85C 20\uC758 \uD53C\uD574\uB97C \uC8FC\uAC70\uB098, \uC2E4\uD328 \uC2DC 1\uC758 \uD53C\uD574\uB97C \uC90D\uB2C8\uB2E4." },
+  { id: "heal", name: "\uCE58\uC720", type: "skill", cost: 2, rarity: "uncommon", heal: 12, desc: "\uCCB4\uB825\uC744 12 \uD68C\uBCF5\uD569\uB2C8\uB2E4." },
+  { id: "mana_potion", name: "\uB9C8\uB098 \uBB3C\uC57D", type: "skill", cost: 1, rarity: "uncommon", manaGain: 3, desc: "\uB9C8\uB098\uB97C 1 \uC18C\uBAA8\uD558\uC5EC \uB9C8\uB098 3\uC744 \uC5BB\uC2B5\uB2C8\uB2E4." },
+  { id: "wind_slash", name: "\uC21C\uD48D \uBCA0\uAE30", type: "attack", cost: 1, rarity: "uncommon", damage: 7, draw: 1, desc: "7\uC758 \uD53C\uD574\uB97C \uC8FC\uACE0 \uCE74\uB4DC\uB97C 1\uC7A5 \uBF51\uC2B5\uB2C8\uB2E4." },
+  { id: "overcharge", name: "\uACFC\uBD80\uD558", type: "skill", cost: 0, rarity: "uncommon", manaGain: 3, selfDamage: 3, desc: "\uB9C8\uB098\uB97C 3 \uC5BB\uACE0 \uCCB4\uB825\uC744 3 \uC783\uC2B5\uB2C8\uB2E4." },
+  { id: "fireball", name: "\uD654\uC5FC\uAD6C", type: "attack", cost: 2, rarity: "uncommon", damage: 22, desc: "\uC801\uC5D0\uAC8C 22\uC758 \uD53C\uD574\uB97C \uC90D\uB2C8\uB2E4." },
+  { id: "blood_pact", name: "\uD53C\uC758 \uACC4\uC57D", type: "skill", cost: 0, rarity: "uncommon", draw: 3, selfDamage: 5, desc: "\uCE74\uB4DC\uB97C 3\uC7A5 \uBF51\uACE0 \uCCB4\uB825\uC744 5 \uC783\uC2B5\uB2C8\uB2E4." },
+  { id: "iron_wall", name: "\uCCA0\uBCBD", type: "skill", cost: 2, rarity: "uncommon", block: 18, desc: "18\uC758 \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uC2B5\uB2C8\uB2E4." },
+  { id: "double_strike", name: "\uC5F0\uC18D \uBCA0\uAE30", type: "attack", cost: 2, rarity: "uncommon", damage: 9, multiHit: 2, desc: "9\uC758 \uD53C\uD574\uB97C 2\uBC88 \uC5F0\uC18D \uC90D\uB2C8\uB2E4." },
+  { id: "dash", name: "\uB3CC\uC9C4", type: "attack", cost: 2, rarity: "uncommon", damage: 12, block: 12, desc: "12\uC758 \uD53C\uD574\uB97C \uC8FC\uACE0 12\uC758 \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uC2B5\uB2C8\uB2E4." },
+  { id: "divine_shield", name: "\uC2E0\uC758 \uBC29\uD328", type: "skill", cost: 2, rarity: "uncommon", block: 15, heal: 5, desc: "15\uC758 \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uACE0 \uCCB4\uB825\uC744 5 \uD68C\uBCF5\uD569\uB2C8\uB2E4." },
+  { id: "smash", name: "\uBD84\uC1C4", type: "attack", cost: 2, rarity: "uncommon", damage: 14, draw: 1, desc: "14\uC758 \uD53C\uD574\uB97C \uC8FC\uACE0 \uCE74\uB4DC\uB97C 1\uC7A5 \uBF51\uC2B5\uB2C8\uB2E4." },
+  { id: "vanguard", name: "\uC120\uBD09\uC7A5", type: "attack", cost: 2, rarity: "uncommon", damage: 8, block: 16, desc: "8\uC758 \uD53C\uD574\uB97C \uC8FC\uACE0 16\uC758 \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uC2B5\uB2C8\uB2E4." },
+  { id: "dark_bargain", name: "\uC5B4\uB460\uC758 \uAC70\uB798", type: "skill", cost: 0, rarity: "uncommon", manaGain: 1, draw: 1, selfDamage: 2, desc: "\uB9C8\uB098\uB97C 1 \uC5BB\uACE0 \uCE74\uB4DC\uB97C 1\uC7A5 \uBF51\uC9C0\uB9CC \uCCB4\uB825\uC744 2 \uC783\uC2B5\uB2C8\uB2E4." },
+  { id: "barrier", name: "\uACB0\uACC4", type: "skill", cost: 2, rarity: "uncommon", block: 25, desc: "25\uC758 \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uC2B5\uB2C8\uB2E4." },
+  { id: "adrenaline", name: "\uC544\uB4DC\uB808\uB0A0\uB9B0", type: "skill", cost: 1, rarity: "uncommon", draw: 3, selfDamage: 3, desc: "\uCE74\uB4DC\uB97C 3\uC7A5 \uBF51\uC9C0\uB9CC \uCCB4\uB825\uC744 3 \uC783\uC2B5\uB2C8\uB2E4." },
+  { id: "blade_dance", name: "\uAC80\uBB34", type: "attack", cost: 2, rarity: "uncommon", damage: 6, multiHit: 3, desc: "6\uC758 \uD53C\uD574\uB97C 3\uBC88 \uC5F0\uC18D \uC90D\uB2C8\uB2E4." },
+  { id: "panic_button", name: "\uBE44\uC0C1 \uBC84\uD2BC", type: "skill", cost: 0, rarity: "uncommon", block: 20, selfDamage: 5, desc: "20\uC758 \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uC9C0\uB9CC \uCCB4\uB825\uC744 5 \uC783\uC2B5\uB2C8\uB2E4." },
+  { id: "blood_blade", name: "\uD53C\uC758 \uCE7C\uB0A0", type: "attack", cost: 1, rarity: "uncommon", damage: 18, selfDamage: 4, desc: "18\uC758 \uD53C\uD574\uB97C \uC8FC\uC9C0\uB9CC \uCCB4\uB825\uC744 4 \uC783\uC2B5\uB2C8\uB2E4." },
+  { id: "muscle_training", name: "\uADFC\uB825 \uB2E8\uB828", type: "skill", cost: 1, rarity: "uncommon", selfStrength: 2, desc: "\uADFC\uB825\uC744 2 \uC5BB\uC2B5\uB2C8\uB2E4." },
+  { id: "iron_skin", name: "\uCCA0\uC758 \uD53C\uBD80", type: "skill", cost: 1, rarity: "uncommon", block: 5, selfDex: 1, desc: "5\uC758 \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uACE0 \uBBFC\uCCA9\uC744 1 \uC5BB\uC2B5\uB2C8\uB2E4." },
+  { id: "neutralize", name: "\uBB34\uB825\uD654", type: "skill", cost: 1, rarity: "uncommon", enemyWeak: 3, desc: "\uC801\uC5D0\uAC8C 3\uD134\uAC04 \uC57D\uD654\uB97C \uBD80\uC5EC\uD569\uB2C8\uB2E4." },
+  { id: "expose_weakness", name: "\uC57D\uC810 \uB178\uCD9C", type: "skill", cost: 1, rarity: "uncommon", enemyVuln: 3, desc: "\uC801\uC5D0\uAC8C 3\uD134\uAC04 \uCDE8\uC57D\uC744 \uBD80\uC5EC\uD569\uB2C8\uB2E4." },
+  { id: "catalyst", name: "\uCD09\uB9E4", type: "skill", cost: 1, rarity: "uncommon", manaGain: 2, desc: "\uB9C8\uB098\uB97C 2 \uD68C\uBCF5\uD569\uB2C8\uB2E4." },
+  { id: "vitality_shield", name: "\uD65C\uB825\uC758 \uBC29\uD328", type: "skill", cost: 2, rarity: "uncommon", percentBlockMaxHp: 10, desc: "\uB0B4 \uCD5C\uB300 \uCCB4\uB825\uC758 10%\uB9CC\uD07C \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uC2B5\uB2C8\uB2E4." },
+  { id: "blood_strike", name: "\uD53C\uC758 \uC77C\uACA9", type: "attack", cost: 1, rarity: "uncommon", missingHpDamage: 0.3, desc: "\uB0B4\uAC00 \uC783\uC740 \uCCB4\uB825\uC758 30%\uB9CC\uD07C \uC801\uC5D0\uAC8C \uD53C\uD574\uB97C \uC90D\uB2C8\uB2E4." },
+  { id: "dig_in", name: "\uD30C\uACE0\uB4E4\uAE30", type: "attack", cost: 1, rarity: "uncommon", damage: 8, enemyWeak: 1, enemyVuln: 1, desc: "8\uC758 \uD53C\uD574\uB97C \uC8FC\uACE0 1\uD134\uAC04 \uC57D\uD654\uC640 \uCDE8\uC57D\uC744 \uBD80\uC5EC\uD569\uB2C8\uB2E4." },
+  { id: "vampiric_strike", name: "\uD761\uD608\uC758 \uC77C\uACA9", type: "attack", cost: 2, rarity: "uncommon", damage: 12, heal: 6, desc: "12\uC758 \uD53C\uD574\uB97C \uC8FC\uACE0 \uCCB4\uB825\uC744 6 \uD68C\uBCF5\uD569\uB2C8\uB2E4." },
+  { id: "beast_tear", name: "\uB9F9\uC218 \uCC22\uAE30", type: "attack", cost: 2, rarity: "uncommon", damage: 18, enemyVuln: 2, desc: "18\uC758 \uD53C\uD574\uB97C \uC8FC\uACE0 2\uD134\uAC04 \uCDE8\uC57D\uC744 \uBD80\uC5EC\uD569\uB2C8\uB2E4." },
+  { id: "magic_shield", name: "\uB9C8\uB825 \uBC29\uD328", type: "skill", cost: 1, rarity: "uncommon", block: 15, draw: 1, desc: "15\uC758 \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uACE0 \uCE74\uB4DC\uB97C 1\uC7A5 \uBF51\uC2B5\uB2C8\uB2E4." },
+  { id: "blood_ritual", name: "\uD53C\uC758 \uC81C\uC0AC", type: "skill", cost: 0, rarity: "uncommon", manaGain: 2, selfDamage: 5, desc: "\uB9C8\uB098\uB97C 2 \uC5BB\uC9C0\uB9CC \uCCB4\uB825\uC744 5 \uC783\uC2B5\uB2C8\uB2E4." },
+  { id: "ice_wall", name: "\uC5BC\uC74C \uC7A5\uBCBD", type: "skill", cost: 2, rarity: "uncommon", block: 20, enemyWeak: 1, desc: "20\uC758 \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uACE0 \uC801\uC5D0\uAC8C 1\uD134\uAC04 \uC57D\uD654\uB97C \uBD80\uC5EC\uD569\uB2C8\uB2E4." },
+  { id: "smoke_bomb", name: "\uC5F0\uB9C9\uD0C4", type: "skill", cost: 0, rarity: "uncommon", block: 5, enemyVuln: 2, desc: "5\uC758 \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uACE0 2\uD134\uAC04 \uCDE8\uC57D\uC744 \uBD80\uC5EC\uD569\uB2C8\uB2E4." },
+  { id: "tactical_retreat", name: "\uC804\uC220\uC801 \uD6C4\uD1F4", type: "skill", cost: 2, rarity: "uncommon", block: 15, draw: 3, enemyWeak: 1, desc: "15\uC758 \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uACE0 \uCE74\uB4DC\uB97C 3\uC7A5 \uBF51\uC73C\uBA70 1\uD134\uAC04 \uC57D\uD654\uB97C \uBD80\uC5EC\uD569\uB2C8\uB2E4." },
+  { id: "mana_amp", name: "\uB9C8\uB098 \uC99D\uD3ED", type: "skill", cost: 0, rarity: "uncommon", manaGain: 3, enemyVuln: 1, desc: "\uB9C8\uB098\uB97C 3 \uC5BB\uACE0 \uC801\uC5D0\uAC8C 1\uD134\uAC04 \uCDE8\uC57D\uC744 \uBD80\uC5EC\uD569\uB2C8\uB2E4." },
+  { id: "unstable_bomb", name: "\uBD88\uC548\uC815\uD55C \uD3ED\uC57D", type: "attack", cost: 2, rarity: "uncommon", gamble: true, gambleWinChance: 0.7, winDamage: 35, loseSelfDamage: 15, desc: "70% \uD655\uB960\uB85C 35\uC758 \uD53C\uD574\uB97C \uC90D\uB2C8\uB2E4. \uC2E4\uD328 \uC2DC \uB0B4 \uCCB4\uB825\uC744 15 \uC783\uC2B5\uB2C8\uB2E4." },
+  { id: "lucky_coin", name: "\uD589\uC6B4\uC758 \uB3D9\uC804", type: "skill", cost: 1, rarity: "uncommon", gamble: true, gambleWinChance: 0.5, winManaGain: 3, desc: "50% \uD655\uB960\uB85C \uB9C8\uB098\uB97C 3 \uC5BB\uC2B5\uB2C8\uB2E4. \uC2E4\uD328 \uC2DC \uC544\uBB34 \uD6A8\uACFC\uB3C4 \uC5C6\uC2B5\uB2C8\uB2E4." },
+  { id: "vampire_sword", name: "\uBC40\uD30C\uC774\uC5B4\uC758 \uAC80", type: "attack", cost: 2, rarity: "rare", damage: 20, heal: 10, enemyWeak: 1, desc: "20\uC758 \uD53C\uD574\uB97C \uC8FC\uACE0 \uCCB4\uB825\uC744 10 \uD68C\uBCF5\uD558\uBA70 1\uD134\uAC04 \uC57D\uD654\uB97C \uBD80\uC5EC\uD569\uB2C8\uB2E4." },
+  { id: "absolute_defense", name: "\uC808\uB300 \uBC29\uC5B4", type: "skill", cost: 2, rarity: "rare", block: 30, enemyWeak: 2, desc: "30\uC758 \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uACE0 \uC801\uC5D0\uAC8C 2\uD134\uAC04 \uC57D\uD654\uB97C \uBD80\uC5EC\uD569\uB2C8\uB2E4." },
+  { id: "execute", name: "\uCC98\uD615", type: "attack", cost: 2, rarity: "rare", damage: 30, enemyVuln: 2, desc: "\uC801\uC5D0\uAC8C 30\uC758 \uD53C\uD574\uB97C \uC8FC\uACE0 2\uD134\uAC04 \uCDE8\uC57D\uC744 \uBD80\uC5EC\uD569\uB2C8\uB2E4." },
+  { id: "snipe", name: "\uC800\uACA9", type: "attack", cost: 3, rarity: "rare", damage: 60, enemyVuln: 2, desc: "\uC801\uC5D0\uAC8C 60\uC758 \uD53C\uD574\uB97C \uC8FC\uACE0 2\uD134\uAC04 \uCDE8\uC57D\uC744 \uBD80\uC5EC\uD569\uB2C8\uB2E4." },
+  { id: "onslaught", name: "\uB9F9\uACF5", type: "attack", cost: 3, rarity: "rare", damage: 12, multiHit: 5, enemyVuln: 1, desc: "12\uC758 \uD53C\uD574\uB97C 5\uBC88 \uC5F0\uC18D \uC8FC\uACE0 1\uD134\uAC04 \uCDE8\uC57D\uC744 \uBD80\uC5EC\uD569\uB2C8\uB2E4. (\uCD1D 60)" },
+  { id: "berserker_axe", name: "\uAD11\uC804\uC0AC\uC758 \uB3C4\uB07C", type: "attack", cost: 2, rarity: "rare", damage: 40, selfDamage: 3, enemyVuln: 2, desc: "40\uC758 \uD53C\uD574\uB97C \uC8FC\uC9C0\uB9CC \uCCB4\uB825\uC744 3 \uC783\uACE0 \uC801\uC5D0\uAC8C 2\uD134\uAC04 \uCDE8\uC57D\uC744 \uBD80\uC5EC\uD569\uB2C8\uB2E4." },
+  { id: "destruction_ray", name: "\uD30C\uAD34 \uAD11\uC120", type: "attack", cost: 3, rarity: "rare", damage: 80, selfDamage: 10, enemyWeak: 2, desc: "\uC801\uC5D0\uAC8C 80\uC758 \uD53C\uD574\uB97C \uC8FC\uC9C0\uB9CC \uCCB4\uB825\uC744 10 \uC783\uACE0 2\uD134\uAC04 \uC57D\uD654\uB97C \uBD80\uC5EC\uD569\uB2C8\uB2E4." },
+  { id: "lightning_strike", name: "\uBC88\uAC1C \uC77C\uACA9", type: "attack", cost: 2, rarity: "rare", damage: 40, draw: 2, enemyWeak: 1, desc: "40\uC758 \uD53C\uD574\uB97C \uC8FC\uACE0 \uCE74\uB4DC\uB97C 2\uC7A5 \uBF51\uC73C\uBA70 1\uD134\uAC04 \uC57D\uD654\uB97C \uBD80\uC5EC\uD569\uB2C8\uB2E4." },
+  { id: "soul_slash", name: "\uC601\uD63C \uBCA0\uAE30", type: "attack", cost: 2, rarity: "rare", damage: 30, heal: 20, enemyWeak: 1, desc: "30\uC758 \uD53C\uD574\uB97C \uC8FC\uACE0 \uCCB4\uB825\uC744 20 \uD68C\uBCF5\uD558\uBA70 1\uD134\uAC04 \uC57D\uD654\uB97C \uBD80\uC5EC\uD569\uB2C8\uB2E4." },
+  { id: "meteor_fall", name: "\uC6B4\uC11D \uB099\uD558", type: "attack", cost: 3, rarity: "rare", damage: 60, enemyWeak: 3, desc: "60\uC758 \uD53C\uD574\uB97C \uC8FC\uACE0 3\uD134\uAC04 \uC57D\uD654\uB97C \uBD80\uC5EC\uD569\uB2C8\uB2E4." },
+  { id: "holy_light", name: "\uC2E0\uC131\uD55C \uBE5B", type: "skill", cost: 2, rarity: "rare", heal: 40, enemyWeak: 2, desc: "\uCCB4\uB825\uC744 40 \uD68C\uBCF5\uD558\uACE0 \uC801\uC5D0\uAC8C 2\uD134\uAC04 \uC57D\uD654\uB97C \uBD80\uC5EC\uD569\uB2C8\uB2E4." },
+  { id: "demonic_dance", name: "\uC545\uB9C8\uC758 \uCDA4", type: "skill", cost: 2, rarity: "rare", selfStrength: 5, selfDamage: 5, enemyVuln: 3, desc: "\uADFC\uB825\uC744 5 \uC5BB\uC9C0\uB9CC \uCCB4\uB825\uC744 5 \uC783\uACE0 \uC801\uC5D0\uAC8C 3\uD134\uAC04 \uCDE8\uC57D\uC744 \uBD80\uC5EC\uD569\uB2C8\uB2E4." },
+  { id: "angels_blessing", name: "\uCC9C\uC0AC\uC758 \uCD95\uBCF5", type: "skill", cost: 3, rarity: "rare", selfStrength: 4, selfDex: 4, enemyWeak: 2, desc: "\uADFC\uB825\uC744 4, \uBBFC\uCCA9\uC744 4 \uC5BB\uACE0 \uC801\uC5D0\uAC8C 2\uD134\uAC04 \uC57D\uD654\uB97C \uBD80\uC5EC\uD569\uB2C8\uB2E4." },
+  { id: "will_of_steel", name: "\uAC15\uCCA0\uC758 \uC758\uC9C0", type: "skill", cost: 2, rarity: "rare", selfDex: 5, enemyWeak: 2, desc: "\uBBFC\uCCA9\uC744 5 \uC5BB\uACE0 \uC801\uC5D0\uAC8C 2\uD134\uAC04 \uC57D\uD654\uB97C \uBD80\uC5EC\uD569\uB2C8\uB2E4." },
+  { id: "soul_shield", name: "\uC601\uD63C\uC758 \uBC29\uD328", type: "skill", cost: 3, rarity: "rare", block: 50, heal: 10, enemyWeak: 2, desc: "50\uC758 \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uACE0 \uCCB4\uB825\uC744 10 \uD68C\uBCF5\uD558\uBA70 2\uD134\uAC04 \uC57D\uD654\uB97C \uBD80\uC5EC\uD569\uB2C8\uB2E4." },
+  { id: "regeneration", name: "\uC7AC\uC0DD", type: "skill", cost: 1, rarity: "rare", heal: 20, manaGain: 2, enemyWeak: 1, desc: "\uCCB4\uB825\uC744 20 \uD68C\uBCF5\uD558\uACE0 \uB9C8\uB098\uB97C 2 \uC5BB\uC73C\uBA70 1\uD134\uAC04 \uC57D\uD654\uB97C \uBD80\uC5EC\uD569\uB2C8\uB2E4." },
+  { id: "barricade", name: "\uC808\uB300 \uC7A5\uBCBD", type: "skill", cost: 3, rarity: "rare", doubleBlock: true, desc: "\uB0B4\uAC00 \uD604\uC7AC \uAC00\uC9C4 \uBC29\uC5B4\uB3C4\uB97C \uC815\uD655\uD788 2\uBC30\uB85C \uC99D\uD3ED\uC2DC\uD0B5\uB2C8\uB2E4." },
+  { id: "mana_burst", name: "\uB9C8\uB098 \uD3ED\uBC1C", type: "attack", cost: 0, rarity: "rare", manaMultiplier: 7, consumeAllMana: true, desc: "\uBAA8\uB4E0 \uB9C8\uB098\uB97C \uC18C\uBAA8\uD558\uC5EC, (\uC18C\uBAA8\uD55C \uB9C8\uB098 x 7)\uC758 \uD53C\uD574\uB97C \uC90D\uB2C8\uB2E4." },
+  { id: "sword_of_ruin", name: "\uD30C\uBA78\uC758 \uAC80", type: "attack", cost: 3, rarity: "rare", damage: 50, selfDamage: 5, enemyWeak: 2, desc: "50\uC758 \uD53C\uD574\uB97C \uC8FC\uACE0 2\uD134\uAC04 \uC57D\uD654\uB97C \uBD80\uC5EC\uD558\uC9C0\uB9CC \uCCB4\uB825\uC744 5 \uC783\uC2B5\uB2C8\uB2E4." },
+  { id: "chain_explosion", name: "\uC5F0\uC18D \uD3ED\uBC1C", type: "attack", cost: 3, rarity: "rare", damage: 25, multiHit: 3, selfDamage: 10, desc: "25\uC758 \uD53C\uD574\uB97C 3\uBC88 \uC5F0\uC18D \uC8FC\uC9C0\uB9CC \uCCB4\uB825\uC744 10 \uC783\uC2B5\uB2C8\uB2E4." },
+  { id: "time_reverse", name: "\uC2DC\uAC04 \uC5ED\uD589", type: "skill", cost: 3, rarity: "rare", draw: 7, desc: "\uCE74\uB4DC\uB97C 7\uC7A5 \uBF51\uC2B5\uB2C8\uB2E4." },
+  { id: "paladin_shield", name: "\uC131\uAE30\uC0AC\uC758 \uBC29\uD328", type: "skill", cost: 3, rarity: "rare", block: 30, heal: 15, desc: "30\uC758 \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uACE0 \uCCB4\uB825\uC744 15 \uD68C\uBCF5\uD569\uB2C8\uB2E4." },
+  { id: "panacea", name: "\uB9CC\uB2A5 \uBE44\uC57D", type: "skill", cost: 2, rarity: "rare", heal: 20, selfStrength: 2, selfDex: 2, desc: "\uCCB4\uB825\uC744 20 \uD68C\uBCF5\uD558\uACE0 \uADFC\uB825\uACFC \uBBFC\uCCA9\uC744 \uAC01\uAC01 2 \uC5BB\uC2B5\uB2C8\uB2E4." },
+  { id: "mana_spring", name: "\uB9C8\uB098\uC758 \uC0D8", type: "skill", cost: 0, rarity: "rare", manaGain: 5, enemyWeak: 2, desc: "\uB9C8\uB098\uB97C 5 \uC5BB\uACE0 \uC801\uC5D0\uAC8C 2\uD134\uAC04 \uC57D\uD654\uB97C \uBD80\uC5EC\uD569\uB2C8\uB2E4." },
+  { id: "absolute_domain", name: "\uC808\uB300 \uC601\uC5ED", type: "skill", cost: 3, rarity: "rare", block: 50, selfDex: 3, enemyWeak: 1, desc: "50\uC758 \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uACE0 \uBBFC\uCCA9\uC744 3 \uC5BB\uC73C\uBA70 1\uD134\uAC04 \uC57D\uD654\uB97C \uBD80\uC5EC\uD569\uB2C8\uB2E4." },
+  { id: "russian_roulette", name: "\uB7EC\uC2DC\uC548 \uB8F0\uB81B", type: "attack", cost: 0, rarity: "rare", gamble: true, gambleWinChance: 0.16, winDamage: 9999, winDamageBoss: 150, loseDamage: 1, loseDraw: 1, desc: "16% \uD655\uB960\uB85C \uC801\uC744 \uC989\uC0AC\uC2DC\uD0B5\uB2C8\uB2E4(\uBCF4\uC2A4 150). \uC2E4\uD328 \uC2DC 1\uC758 \uD53C\uD574\uB97C \uC8FC\uACE0 1\uC7A5 \uBF51\uC2B5\uB2C8\uB2E4." },
+  { id: "devils_dice", name: "\uC545\uB9C8\uC758 \uC8FC\uC0AC\uC704", type: "skill", cost: 2, rarity: "rare", gamble: true, gambleWinChance: 0.5, winHeal: 50, losePercentMaxHpDamage: 0.2, desc: "50% \uD655\uB960\uB85C \uCCB4\uB825\uC744 50 \uD68C\uBCF5\uD569\uB2C8\uB2E4. \uC2E4\uD328 \uC2DC \uCD5C\uB300 \uCCB4\uB825\uC758 20%\uB97C \uC783\uC2B5\uB2C8\uB2E4." },
+  { id: "super_tiger_slash", name: "\uCD08\uC808\uB9F9\uD638\uC0B4\uACA9\uB09C\uCC38", type: "attack", cost: 3, rarity: "special", damage: 10, multiHit: 5, enemyVuln: 2, desc: "10\uC758 \uD53C\uD574\uB97C 5\uBC88 \uC5F0\uC18D \uC8FC\uACE0 2\uD134\uAC04 \uCDE8\uC57D\uC744 \uBD80\uC5EC\uD569\uB2C8\uB2E4. (\uCD1D 50)" },
+  { id: "true_dragon_slayer", name: "\uC9C4\xB7\uC6A9\uC0B4\uAC80", type: "attack", cost: 3, rarity: "special", damage: 80, selfStrength: 3, enemyVuln: 2, desc: "80\uC758 \uD53C\uD574\uB97C \uC8FC\uACE0 \uADFC\uB825\uC744 3 \uC5BB\uC73C\uBA70 2\uD134\uAC04 \uCDE8\uC57D\uC744 \uBD80\uC5EC\uD569\uB2C8\uB2E4." },
+  { id: "absolute_zero", name: "\uC808\uB300\uC601\uB3C4", type: "skill", cost: 3, rarity: "special", block: 40, enemyWeak: 4, enemyVuln: 4, desc: "40\uC758 \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uACE0 \uC801\uC5D0\uAC8C 4\uD134\uAC04 \uC57D\uD654\uC640 \uCDE8\uC57D\uC744 \uBD80\uC5EC\uD569\uB2C8\uB2E4." },
+  { id: "heavenly_judgment", name: "\uC2E0\uCC9C\uBC8C", type: "attack", cost: 3, rarity: "special", damage: 50, heal: 30, draw: 3, enemyWeak: 3, desc: "50\uC758 \uD53C\uD574\uB97C \uC8FC\uACE0 \uCCB4\uB825\uC744 30 \uD68C\uBCF5\uD558\uBA70 \uCE74\uB4DC\uB97C 3\uC7A5 \uBF51\uC2B5\uB2C8\uB2E4. 3\uD134\uAC04 \uC57D\uD654\uB97C \uBD80\uC5EC\uD569\uB2C8\uB2E4." },
+  { id: "supreme_blade_storm", name: "\uD328\uC655\uC758 \uAC80\uD48D", type: "attack", cost: 3, rarity: "special", damage: 15, multiHit: 8, enemyVuln: 3, desc: "15\uC758 \uD53C\uD574\uB97C 8\uBC88 \uC5F0\uC18D \uC8FC\uACE0 3\uD134\uAC04 \uCDE8\uC57D\uC744 \uBD80\uC5EC\uD569\uB2C8\uB2E4. (\uCD1D 120)" },
+  { id: "blood_of_phoenix", name: "\uBD88\uC0AC\uC870\uC758 \uD53C", type: "skill", cost: 3, rarity: "special", heal: 100, selfDamage: 10, enemyWeak: 3, desc: "\uCCB4\uB825\uC744 100 \uD68C\uBCF5\uD558\uC9C0\uB9CC \uC989\uC2DC \uCCB4\uB825\uC744 10 \uC783\uC2B5\uB2C8\uB2E4. 3\uD134\uAC04 \uC57D\uD654\uB97C \uBD80\uC5EC\uD569\uB2C8\uB2E4." },
+  { id: "descent_of_demon_lord", name: "\uC9C4\xB7\uB9C8\uC655\uC758 \uAC15\uB9BC", type: "skill", cost: 3, rarity: "special", selfStrength: 5, selfDex: 5, selfDamage: 15, enemyVuln: 2, desc: "\uADFC\uB825 5, \uBBFC\uCCA9 5\uB97C \uC5BB\uACE0 2\uD134\uAC04 \uCDE8\uC57D\uC744 \uBD80\uC5EC\uD558\uC9C0\uB9CC \uCCB4\uB825\uC744 15 \uC783\uC2B5\uB2C8\uB2E4." },
+  { id: "spider_queen_poison", name: "\uAC70\uBBF8 \uC5EC\uC655\uC758 \uB9F9\uB3C5", type: "attack", cost: 2, rarity: "special", damage: 20, enemyWeak: 3, enemyVuln: 3, desc: "20\uC758 \uD53C\uD574\uB97C \uC8FC\uACE0 \uC801\uC5D0\uAC8C 3\uD134\uAC04 \uC57D\uD654\uC640 \uCDE8\uC57D\uC744 \uBD80\uC5EC\uD569\uB2C8\uB2E4." },
+  { id: "twerking", name: "\uD2B8\uC6D4\uD0B9", type: "attack", cost: 2, rarity: "special", damage: 30, enemyVuln: 2, desc: "\uACA9\uB82C\uD55C \uC6C0\uC9C1\uC784\uC73C\uB85C \uC801\uC5D0\uAC8C 30\uC758 \uD53C\uD574\uB97C \uC8FC\uACE0 2\uD134\uAC04 \uCDE8\uC57D\uC744 \uBD80\uC5EC\uD569\uB2C8\uB2E4." },
+  { id: "power_of_asura", name: "\uC218\uB77C\uC758 \uD798", type: "skill", cost: 3, rarity: "special", selfStrength: 5, block: 5, desc: "\uBD84\uB178\uB97C \uC77C\uAE68\uC6CC \uADFC\uB825\uC744 5 \uC5BB\uACE0 5\uC758 \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uC2B5\uB2C8\uB2E4." },
+  { id: "slime_snot", name: "\uC2AC\uB77C\uC784\uC758 \uCF67\uBB3C", type: "skill", cost: 0, rarity: "special", heal: 50, block: 50, draw: 3, manaGain: 3, desc: "\uB9E4\uC6B0 \uB354\uB7FD\uC9C0\uB9CC \uC2E0\uBE44\uD55C \uD798! \uCCB4\uB825\uACFC \uBC29\uC5B4\uB3C4\uB97C 50 \uC5BB\uACE0 \uCE74\uB4DC 3\uC7A5\uACFC \uB9C8\uB098 3\uC744 \uC5BB\uC2B5\uB2C8\uB2E4." }
+];
+const BASE_CARDS = ["strike", "defend", "heavy_strike", "shield_bash", "heal", "mana_potion", "focus"];
+const ENEMIES = [
+  { name: "\uC2AC\uB77C\uC784", baseHp: 30, deck: [{ name: "\uBAB8\uD1B5 \uBC15\uCE58\uAE30", type: "attack", value: 8, desc: "8\uC758 \uD53C\uD574\uB97C \uC90D\uB2C8\uB2E4." }, { name: "\uC810\uC561 \uC138\uB840", type: "attack", value: 4, multi: 2, desc: "4\uC758 \uD53C\uD574\uB97C 2\uBC88 \uC90D\uB2C8\uB2E4." }, { name: "\uB048\uC801\uC784", type: "debuff", debuff: "weak", turns: 2, desc: "2\uD134\uAC04 \uC57D\uD654\uB97C \uBD80\uC5EC\uD569\uB2C8\uB2E4." }] },
+  { name: "\uBC15\uC950", baseHp: 25, deck: [{ name: "\uD761\uD608 \uC1A1\uACF3\uB2C8", type: "attack_heal", value: 7, heal: 5, desc: "7\uC758 \uD53C\uD574\uB97C \uC8FC\uACE0 \uCCB4\uB825\uC744 5 \uD68C\uBCF5\uD569\uB2C8\uB2E4." }, { name: "\uCD08\uC74C\uD30C", type: "debuff", debuff: "vulnerable", turns: 1, desc: "1\uD134\uAC04 \uCDE8\uC57D\uC744 \uBD80\uC5EC\uD569\uB2C8\uB2E4." }] },
+  { name: "\uACE0\uBE14\uB9B0", baseHp: 35, deck: [{ name: "\uB2E8\uAC80 \uCC0C\uB974\uAE30", type: "attack", value: 10, desc: "10\uC758 \uD53C\uD574\uB97C \uC90D\uB2C8\uB2E4." }, { name: "\uBC29\uC5B4 \uD0DC\uC138", type: "defend", value: 10, desc: "10\uC758 \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uC2B5\uB2C8\uB2E4." }, { name: "\uBAA8\uB798 \uBFCC\uB9AC\uAE30", type: "debuff", debuff: "weak", turns: 2, desc: "2\uD134\uAC04 \uC57D\uD654\uB97C \uBD80\uC5EC\uD569\uB2C8\uB2E4." }] },
+  { name: "\uB291\uB300", baseHp: 40, deck: [{ name: "\uBB3C\uC5B4\uB72F\uAE30", type: "attack", value: 12, desc: "12\uC758 \uD53C\uD574\uB97C \uC90D\uB2C8\uB2E4." }, { name: "\uC6B8\uBD80\uC9D6\uAE30", type: "debuff", debuff: "vulnerable", turns: 2, desc: "2\uD134\uAC04 \uCDE8\uC57D\uC744 \uBD80\uC5EC\uD569\uB2C8\uB2E4." }] },
+  { name: "\uC2A4\uCF08\uB808\uD1A4", baseHp: 45, deck: [{ name: "\uBF08 \uB358\uC9C0\uAE30", type: "attack", value: 14, desc: "14\uC758 \uD53C\uD574\uB97C \uC90D\uB2C8\uB2E4." }, { name: "\uBC29\uD328 \uC62C\uB9AC\uAE30", type: "defend", value: 12, desc: "12\uC758 \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uC2B5\uB2C8\uB2E4." }, { name: "2\uC5F0\uCC38", type: "attack", value: 7, multi: 2, desc: "7\uC758 \uD53C\uD574\uB97C 2\uBC88 \uC90D\uB2C8\uB2E4." }] },
+  { name: "\uC720\uB839", baseHp: 38, deck: [{ name: "\uC6D0\uD63C\uC758 \uC190\uAE38", type: "attack_debuff", value: 8, debuff: "weak", turns: 1, desc: "8\uC758 \uD53C\uD574\uB97C \uC8FC\uACE0 1\uD134\uAC04 \uC57D\uD654\uB97C \uBD80\uC5EC\uD569\uB2C8\uB2E4." }, { name: "\uAFF0\uB6AB\uAE30", type: "attack", value: 16, desc: "16\uC758 \uD53C\uD574\uB97C \uC90D\uB2C8\uB2E4." }] },
+  { name: "\uC624\uD06C", baseHp: 60, deck: [{ name: "\uB3C4\uB07C \uAC15\uD0C0", type: "attack", value: 20, desc: "20\uC758 \uD53C\uD574\uB97C \uC90D\uB2C8\uB2E4." }, { name: "\uC804\uD22C\uC758 \uD568\uC131", type: "defend_debuff", value: 10, debuff: "vulnerable", turns: 1, desc: "10\uC758 \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uACE0 1\uD134\uAC04 \uCDE8\uC57D\uC744 \uBD80\uC5EC\uD569\uB2C8\uB2E4." }] },
+  { name: "\uAC70\uBBF8", baseHp: 42, deck: [{ name: "\uB9F9\uB3C5 \uC774\uBE68", type: "attack", value: 14, desc: "14\uC758 \uD53C\uD574\uB97C \uC90D\uB2C8\uB2E4." }, { name: "\uAC70\uBBF8\uC904 \uCE58\uAE30", type: "debuff", debuff: "weak", turns: 3, desc: "3\uD134\uAC04 \uC57D\uD654\uB97C \uBD80\uC5EC\uD569\uB2C8\uB2E4." }] },
+  { name: "\uAD11\uC2E0\uB3C4", baseHp: 55, deck: [{ name: "\uC5B4\uB460\uC758 \uC758\uC2DD", type: "attack", value: 22, desc: "22\uC758 \uD53C\uD574\uB97C \uC90D\uB2C8\uB2E4." }, { name: "\uC5B4\uB460\uC758 \uCE58\uC720", type: "heal", heal: 15, desc: "\uCCB4\uB825\uC744 15 \uD68C\uBCF5\uD569\uB2C8\uB2E4." }, { name: "\uC800\uC8FC", type: "debuff", debuff: "vulnerable", turns: 2, desc: "2\uD134\uAC04 \uCDE8\uC57D\uC744 \uBD80\uC5EC\uD569\uB2C8\uB2E4." }] },
+  { name: "\uAC00\uACE0\uC77C", baseHp: 70, deck: [{ name: "\uC11D\uD654", type: "defend", value: 25, desc: "25\uC758 \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uC2B5\uB2C8\uB2E4." }, { name: "\uAC15\uD558", type: "attack", value: 18, desc: "18\uC758 \uD53C\uD574\uB97C \uC90D\uB2C8\uB2E4." }] },
+  { name: "\uBA38\uB4DC\uB9E8", baseHp: 50, deck: [{ name: "\uC9C4\uD759 \uB358\uC9C0\uAE30", type: "attack_debuff", value: 10, debuff: "weak", turns: 1, desc: "10\uC758 \uD53C\uD574\uB97C \uC8FC\uACE0 1\uD134\uAC04 \uC57D\uD654\uB97C \uBD80\uC5EC\uD569\uB2C8\uB2E4." }, { name: "\uC7AC\uC0DD", type: "heal", heal: 10, desc: "\uCCB4\uB825\uC744 10 \uD68C\uBCF5\uD569\uB2C8\uB2E4." }] },
+  { name: "\uBBF8\uBBF9", baseHp: 65, deck: [{ name: "\uAE5C\uC9DD \uBB3C\uAE30", type: "attack", value: 18, desc: "18\uC758 \uD53C\uD574\uB97C \uC90D\uB2C8\uB2E4." }, { name: "\uAD73\uAC8C \uB2EB\uAE30", type: "defend", value: 20, desc: "20\uC758 \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uC2B5\uB2C8\uB2E4." }] },
+  { name: "\uBC34\uC2DC", baseHp: 45, deck: [{ name: "\uD1B5\uACE1", type: "debuff", debuff: "vulnerable", turns: 2, desc: "2\uD134\uAC04 \uCDE8\uC57D\uACFC \uC57D\uD654\uB97C \uBD80\uC5EC\uD569\uB2C8\uB2E4." }, { name: "\uC601\uD63C \uD761\uC218", type: "attack_heal", value: 12, heal: 10, desc: "12\uC758 \uD53C\uD574\uB97C \uC8FC\uACE0 \uCCB4\uB825\uC744 10 \uD68C\uBCF5\uD569\uB2C8\uB2E4." }] },
+  { name: "\uACE8\uB818", baseHp: 80, deck: [{ name: "\uBC14\uC704 \uC8FC\uBA39", type: "attack", value: 25, desc: "25\uC758 \uD53C\uD574\uB97C \uC90D\uB2C8\uB2E4." }, { name: "\uBB35\uC9C1\uD55C \uAC00\uB4DC", type: "defend_debuff", value: 30, debuff: "weak", turns: 1, desc: "30\uC758 \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uACE0 1\uD134\uAC04 \uC57D\uD654\uB97C \uBD80\uC5EC\uD569\uB2C8\uB2E4." }] },
+  { name: "\uCF04\uD0C0\uC6B0\uB85C\uC2A4", baseHp: 60, deck: [{ name: "\uB3CC\uACA9", type: "attack", value: 20, desc: "20\uC758 \uD53C\uD574\uB97C \uC90D\uB2C8\uB2E4." }, { name: "\uC5F0\uC18D \uD654\uC0B4", type: "attack", value: 8, multi: 3, desc: "8\uC758 \uD53C\uD574\uB97C 3\uBC88 \uC90D\uB2C8\uB2E4." }] }
+];
+const NORMAL_BOSSES = [
+  { name: "\uD0B9 \uC2AC\uB77C\uC784", baseHp: 150, deck: [{ name: "\uB300\uC9C0\uC9C4", type: "attack", value: 25, desc: "25\uC758 \uD53C\uD574\uB97C \uC90D\uB2C8\uB2E4." }, { name: "\uAD73\uC5B4\uC9C0\uAE30", type: "defend", value: 30, desc: "30\uC758 \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uC2B5\uB2C8\uB2E4." }, { name: "\uAC15\uC0B0\uC131 \uC810\uC561", type: "attack_debuff", value: 15, debuff: "weak", turns: 3, desc: "15\uC758 \uD53C\uD574\uB97C \uC8FC\uACE0 3\uD134\uAC04 \uC57D\uD654\uB97C \uBD80\uC5EC\uD569\uB2C8\uB2E4." }] },
+  { name: "\uACE0\uBE14\uB9B0 \uC871\uC7A5", baseHp: 250, deck: [{ name: "\uC5F0\uC18D \uCC0C\uB974\uAE30", type: "attack", value: 10, multi: 3, desc: "10\uC758 \uD53C\uD574\uB97C 3\uBC88 \uC90D\uB2C8\uB2E4." }, { name: "\uCD1D\uACF5\uACA9 \uC9C0\uC2DC", type: "debuff", debuff: "vulnerable", turns: 3, desc: "3\uD134\uAC04 \uCDE8\uC57D\uC744 \uBD80\uC5EC\uD569\uB2C8\uB2E4." }, { name: "\uCCA0\uBCBD \uBC29\uC5B4", type: "defend", value: 40, desc: "40\uC758 \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uC2B5\uB2C8\uB2E4." }] },
+  { name: "\uC624\uD06C \uB300\uC7A5\uAD70", baseHp: 400, deck: [{ name: "\uCC38\uC218", type: "attack", value: 40, desc: "40\uC758 \uD53C\uD574\uB97C \uC90D\uB2C8\uB2E4." }, { name: "\uD53C\uC758 \uAD76\uC8FC\uB9BC", type: "attack_debuff", value: 25, debuff: "vulnerable", turns: 2, desc: "25\uC758 \uD53C\uD574\uB97C \uC8FC\uACE0 2\uD134\uAC04 \uCDE8\uC57D\uC744 \uBD80\uC5EC\uD569\uB2C8\uB2E4." }, { name: "\uB300\uC7A5\uAD70\uC758 \uAE30\uBC31", type: "defend", value: 50, desc: "50\uC758 \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uC2B5\uB2C8\uB2E4." }] },
+  { name: "\uBC40\uD30C\uC774\uC5B4 \uB85C\uB4DC", baseHp: 650, deck: [{ name: "\uC0DD\uBA85 \uD761\uC218", type: "attack_heal", value: 35, heal: 20, desc: "35\uC758 \uD53C\uD574\uB97C \uC8FC\uACE0 \uCCB4\uB825\uC744 20 \uD68C\uBCF5\uD569\uB2C8\uB2E4." }, { name: "\uD53C\uC758 \uC548\uAC1C", type: "debuff", debuff: "weak", turns: 4, desc: "4\uD134\uAC04 \uC57D\uD654\uB97C \uBD80\uC5EC\uD569\uB2C8\uB2E4." }, { name: "\uC808\uB9DD\uC758 \uC2DC\uC120", type: "debuff", debuff: "vulnerable", turns: 4, desc: "4\uD134\uAC04 \uCDE8\uC57D\uC744 \uBD80\uC5EC\uD569\uB2C8\uB2E4." }] },
+  { name: "\uACE0\uB300 \uB4DC\uB798\uACE4", baseHp: 1e3, deck: [{ name: "\uB4DC\uB798\uACE4 \uBE0C\uB808\uC2A4", type: "attack", value: 60, desc: "60\uC758 \uD53C\uD574\uB97C \uC90D\uB2C8\uB2E4." }, { name: "\uBE44\uB298 \uAC15\uD654", type: "defend", value: 80, desc: "80\uC758 \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uC2B5\uB2C8\uB2E4." }, { name: "\uC555\uB3C4\uC801 \uACF5\uD3EC", type: "debuff", debuff: "weak", turns: 5, desc: "5\uD134\uAC04 \uC57D\uD654\uB97C \uBD80\uC5EC\uD569\uB2C8\uB2E4." }] },
+  { name: "\uBBF8\uB178\uD0C0\uC6B0\uB85C\uC2A4", baseHp: 300, deck: [{ name: "\uBFD4 \uB4E4\uC774\uBC1B\uAE30", type: "attack", value: 45, desc: "45\uC758 \uD53C\uD574\uB97C \uC90D\uB2C8\uB2E4." }, { name: "\uAD11\uD3ED\uD654", type: "buff", buff: "strength", buffValue: 3, turns: 1, desc: "\uADFC\uB825\uC744 3 \uC5BB\uC2B5\uB2C8\uB2E4." }, { name: "\uB3C4\uB07C \uD729\uC4F8\uAE30", type: "attack", value: 30, desc: "30\uC758 \uD53C\uD574\uB97C \uC90D\uB2C8\uB2E4." }] },
+  { name: "\uB9C8\uC2A4\uD130 \uB9AC\uCE58", baseHp: 500, deck: [{ name: "\uC8FD\uC74C\uC758 \uAD11\uC120", type: "attack", value: 50, desc: "50\uC758 \uD53C\uD574\uB97C \uC90D\uB2C8\uB2E4." }, { name: "\uBF08 \uBC29\uC5B4\uB9C9", type: "defend", value: 60, desc: "60\uC758 \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uC2B5\uB2C8\uB2E4." }, { name: "\uC0DD\uBA85\uB825 \uCC29\uCDE8", type: "attack_heal", value: 30, heal: 30, desc: "30\uC758 \uD53C\uD574\uB97C \uC8FC\uACE0 30 \uD68C\uBCF5\uD569\uB2C8\uB2E4." }] },
+  { name: "\uB3CC\uC5F0\uBCC0\uC774 \uD0A4\uBA54\uB77C", baseHp: 800, deck: [{ name: "\uB3C5\uC0AC \uAF2C\uB9AC", type: "attack_debuff", value: 20, debuff: "weak", turns: 3, desc: "20\uC758 \uD53C\uD574\uB97C \uC8FC\uACE0 3\uD134\uAC04 \uC57D\uD654\uB97C \uBD80\uC5EC\uD569\uB2C8\uB2E4." }, { name: "\uC0AC\uC790\uD6C4", type: "debuff", debuff: "vulnerable", turns: 3, desc: "3\uD134\uAC04 \uCDE8\uC57D\uC744 \uBD80\uC5EC\uD569\uB2C8\uB2E4." }, { name: "\uBB34\uC790\uBE44\uD55C \uCC22\uAE30", type: "attack", value: 40, desc: "40\uC758 \uD53C\uD574\uB97C \uC90D\uB2C8\uB2E4." }] }
+];
+const SPECIAL_BOSSES = {
+  25: { name: "\uAC70\uBBF8 \uC5EC\uC655", baseHp: 500, passives: [], deck: [{ name: "\uB9F9\uB3C5 \uC0E4\uC6CC", type: "attack_debuff", value: 15, multi: 2, debuff: "weak", turns: 2, desc: "15\uC758 \uD53C\uD574\uB97C 2\uBC88 \uC8FC\uACE0 2\uD134\uAC04 \uC57D\uD654\uB97C \uBD80\uC5EC\uD569\uB2C8\uB2E4." }, { name: "\uC5EC\uC655\uC758 \uBA85\uB839", type: "defend_debuff", value: 50, debuff: "vulnerable", turns: 2, desc: "50\uC758 \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uACE0 2\uD134\uAC04 \uCDE8\uC57D\uC744 \uBD80\uC5EC\uD569\uB2C8\uB2E4." }] },
+  50: { name: "\uAE40\uC0A0\uC090", baseHp: 1500, passives: [{ id: "revive", name: "1\uD68C \uBD80\uD65C", desc: "\uC0AC\uB9DD \uC2DC \uCCB4\uB825\uC744 50% \uD68C\uBCF5\uD558\uACE0 1\uD68C \uBD80\uD65C\uD569\uB2C8\uB2E4." }], deck: [{ name: "\uD2B8\uC6D4\uD0B9", type: "attack_debuff", value: 30, debuff: "vulnerable", turns: 2, desc: "30\uC758 \uD53C\uD574\uB97C \uC8FC\uACE0 2\uD134\uAC04 \uCDE8\uC57D\uC744 \uBD80\uC5EC\uD569\uB2C8\uB2E4." }, { name: "\uB3C4\uBC1C", type: "defend_buff", value: 50, buff: "strength", buffValue: 6, desc: "50\uC758 \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uACE0 \uADFC\uB825\uC744 6 \uC5BB\uC2B5\uB2C8\uB2E4." }, { name: "\uD68C\uBCF4\uC624\uC625!", type: "heal", heal: 200, desc: "\uCCB4\uB825\uC744 200 \uD68C\uBCF5\uD569\uB2C8\uB2E4." }] },
+  75: { name: "\uC218\uB77C\uC758 \uC655", baseHp: 2500, passives: [{ id: "scaling_strength", name: "\uB05D\uC5C6\uB294 \uBD84\uB178", desc: "\uB9E4 \uD134 \uC2DC\uC791 \uC2DC \uADFC\uB825\uC774 3 \uC99D\uAC00\uD569\uB2C8\uB2E4." }], deck: [{ name: "\uC721\uB3C4\uC724\uD68C", type: "attack", value: 15, multi: 6, desc: "15\uC758 \uD53C\uD574\uB97C 6\uBC88 \uC90D\uB2C8\uB2E4." }, { name: "\uAE08\uAC15\uBD88\uAD34", type: "defend", value: 100, desc: "100\uC758 \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uC2B5\uB2C8\uB2E4." }, { name: "\uD30C\uAD34\uC758 \uB208", type: "debuff", debuff: "vulnerable", turns: 5, desc: "5\uD134\uAC04 \uCDE8\uC57D\uC744 \uBD80\uC5EC\uD569\uB2C8\uB2E4." }] },
+  100: { name: "\uC2A4\uC2A4\uC2A4\uC2AC\uB77C\uC784", baseHp: 800, passives: [{ id: "revive", name: "1\uD68C \uBD80\uD65C", desc: "\uC0AC\uB9DD \uC2DC \uCCB4\uB825\uC744 50% \uD68C\uBCF5\uD558\uACE0 1\uD68C \uBD80\uD65C\uD569\uB2C8\uB2E4." }], deck: [{ name: "\uD2B8\uB9AC\uD50C \uC5B4\uD0DD", type: "attack", value: 20, multi: 3, desc: "20\uC758 \uD53C\uD574\uB97C 3\uBC88 \uC90D\uB2C8\uB2E4." }, { name: "\uC0B0\uC131\uBE44", type: "attack_debuff", value: 40, debuff: "weak", turns: 3, desc: "40\uC758 \uD53C\uD574\uB97C \uC8FC\uACE0 3\uD134\uAC04 \uC57D\uD654\uB97C \uBD80\uC5EC\uD569\uB2C8\uB2E4." }, { name: "\uB2E8\uB2E8\uD55C \uACB0\uC18D", type: "defend_buff", value: 100, buff: "strength", buffValue: 5, desc: "100\uC758 \uBC29\uC5B4\uB3C4\uB97C \uC5BB\uACE0 \uADFC\uB825\uC744 5 \uC5BB\uC2B5\uB2C8\uB2E4." }] }
+};
+const MAX_HAND_SIZE = 10;
+const decayStack = (val) => {
+  if (!val || val <= 0) return 0;
+  let drop = 1;
+  if (val >= 10) drop = Math.floor(val / 3);
+  else if (val >= 5) drop = 2;
+  return Math.max(0, val - drop);
+};
+function App() {
+  const [gameState, setGameState] = useState("MENU");
+  const [user, setUser] = useState(null);
+  const [toastMsg, setToastMsg] = useState("");
+  const [credits, setCredits] = useState(0);
+  const [shopUpgrades, setShopUpgrades] = useState({ maxHp: 0, upgradedCards: [] });
+  const [unlockedCards, setUnlockedCards] = useState(BASE_CARDS);
+  const [deckCounts, setDeckCounts] = useState({ strike: 3, defend: 3, heavy_strike: 3, shield_bash: 3, heal: 2, mana_potion: 3, focus: 3 });
+  const [normalCleared, setNormalCleared] = useState(false);
+  const [fastMode, setFastMode] = useState(false);
+  const [maxStageReached, setMaxStageReached] = useState(1);
+  const [seenEnemies, setSeenEnemies] = useState([]);
+  const [usedCoupons, setUsedCoupons] = useState([]);
+  const [playerRelics, setPlayerRelics] = useState([]);
+  const [startingRelic, setStartingRelic] = useState(null);
+  const [seenRelics, setSeenRelics] = useState([]);
+  const [rewardCards, setRewardCards] = useState([]);
+  const [rewardRelic, setRewardRelic] = useState(null);
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importText, setImportText] = useState("");
+  const [tempDeckCounts, setTempDeckCounts] = useState({});
+  const [combatState, setCombatState] = useState(null);
+  const [showEnemyDeck, setShowEnemyDeck] = useState(false);
+  const [viewingEnemy, setViewingEnemy] = useState(null);
+  const [viewingPile, setViewingPile] = useState(null);
+  const [gachaResult, setGachaResult] = useState(null);
+  const [premiumGachaResult, setPremiumGachaResult] = useState(null);
+  const [specialBossRewardCard, setSpecialBossRewardCard] = useState(null);
+  const [filterType, setFilterType] = useState("all");
+  const [filterEffect, setFilterEffect] = useState("all");
+  const [filterRarity, setFilterRarity] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [shopFilterType, setShopFilterType] = useState("all");
+  const [shopFilterEffect, setShopFilterEffect] = useState("all");
+  const [shopFilterRarity, setShopFilterRarity] = useState("all");
+  const [shopSearchQuery, setShopSearchQuery] = useState("");
+  const [hoveredCard, setHoveredCard] = useState(null);
+  const [couponInput, setCouponInput] = useState("");
+  const [deckImportModalOpen, setDeckImportModalOpen] = useState(false);
+  const [deckImportText, setDeckImportText] = useState("");
+  const [confirmSelection, setConfirmSelection] = useState(null);
+  const [skipModalOpen, setSkipModalOpen] = useState(false);
+  const [warpStage, setWarpStage] = useState(1);
+  const [tutorialModalOpen, setTutorialModalOpen] = useState(false);
+  const [dexViewingEnemy, setDexViewingEnemy] = useState(null);
+  const [relicSelectModalOpen, setRelicSelectModalOpen] = useState(false);
+  const [isCssFullScreen, setIsCssFullScreen] = useState(false);
+  const [adminCodeInput, setAdminCodeInput] = useState("");
+  const [isAdminUnlocked, setIsAdminUnlocked] = useState(false);
+  const [isActionLocked, setIsActionLocked] = useState(false);
+  useEffect(() => {
+    if (!auth) return;
+    const initAuth = async () => {
+      try {
+        if (typeof __initial_auth_token !== "undefined" && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
+        }
+      } catch (e) {
+        console.error("Firebase Initialization Error:", e);
+      }
+    };
+    const unsubscribe = onAuthStateChanged(auth, (u) => {
+      if (u) setUser(u);
+      else initAuth();
+    });
+    return () => unsubscribe();
+  }, []);
+  useEffect(() => {
+    if (!user?.uid || !db) return;
+    const loadData = async () => {
+      try {
+        const docRef = doc(db, "artifacts", appId, "users", user.uid, "gameSave", "data");
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          if (data.deckCounts) setDeckCounts(data.deckCounts || {});
+          if (data.unlockedCards) {
+            const safeCards = (data.unlockedCards || []).filter((id) => CARD_LIBRARY.some((c) => c.id === id));
+            setUnlockedCards(safeCards);
+          }
+          if (data.credits !== void 0) setCredits(data.credits || 0);
+          if (data.shopUpgrades) setShopUpgrades(data.shopUpgrades || { maxHp: 0, upgradedCards: [] });
+          if (data.normalCleared !== void 0) setNormalCleared(data.normalCleared || false);
+          if (data.fastMode !== void 0) setFastMode(data.fastMode || false);
+          if (data.maxStageReached !== void 0) setMaxStageReached(data.maxStageReached || 1);
+          if (data.usedCoupons) setUsedCoupons(data.usedCoupons || []);
+          if (data.seenEnemies) setSeenEnemies(data.seenEnemies || []);
+          if (data.startingRelic) setStartingRelic(data.startingRelic);
+          if (data.seenRelics) setSeenRelics(data.seenRelics || []);
+        }
+      } catch (e) {
+        console.error("Load data error:", e);
+      }
+    };
+    loadData();
+  }, [user, db]);
+  const saveGame = async (payload = {}) => {
+    if (!user?.uid || !db) return;
+    try {
+      const currentSave = { deckCounts, unlockedCards, credits, shopUpgrades, normalCleared, fastMode, maxStageReached, usedCoupons, seenEnemies, startingRelic, seenRelics, ...payload };
+      const docRef = doc(db, "artifacts", appId, "users", user.uid, "gameSave", "data");
+      await setDoc(docRef, currentSave);
+    } catch (e) {
+      console.error("Save game error:", e);
+    }
+  };
+  const updateSeenEnemies = (enemiesList) => {
+    let updated = false;
+    let newSeen = [...seenEnemies || []];
+    enemiesList.forEach((e) => {
+      if (!newSeen.includes(e.template.name)) {
+        newSeen.push(e.template.name);
+        updated = true;
+      }
+    });
+    if (updated) {
+      setSeenEnemies(newSeen);
+      saveGame({ seenEnemies: newSeen });
+    }
+  };
+  const updateSeenRelic = (relicId) => {
+    if (!seenRelics.includes(relicId)) {
+      const newSeen = [...seenRelics, relicId];
+      setSeenRelics(newSeen);
+      saveGame({ seenRelics: newSeen });
+    }
+  };
+  const shuffle = (array) => {
+    let newArr = [...array];
+    for (let i = newArr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [newArr[i], newArr[j]] = [newArr[j], newArr[i]];
+    }
+    return newArr;
+  };
+  const getTotalCards = (deck = deckCounts) => Object.values(deck || {}).reduce((a, b) => a + b, 0);
+  const getCardDef = (id, forceUpgrade = false) => {
+    if (!id) return null;
+    const base = CARD_LIBRARY.find((c) => c.id === id);
+    if (!base) return null;
+    let upgradeLevel = (shopUpgrades?.upgradedCards || []).filter((cId) => cId === id).length;
+    if (forceUpgrade && upgradeLevel === 0) {
+      upgradeLevel = 1;
+    }
+    if (upgradeLevel > 0) {
+      const multiplier = 1 + 0.5 * upgradeLevel;
+      const upgraded = { ...base, name: `${base.name} +${upgradeLevel}`, isUpgraded: true, upgradeLevel };
+      if (upgraded.damage) upgraded.damage = Math.ceil(base.damage * multiplier);
+      if (upgraded.block) upgraded.block = Math.ceil(base.block * multiplier);
+      if (upgraded.heal) upgraded.heal = Math.ceil(base.heal * multiplier);
+      if (upgraded.percentBlockMaxHp) upgraded.percentBlockMaxHp = Math.ceil(base.percentBlockMaxHp * multiplier);
+      if (upgraded.missingHpDamage) upgraded.missingHpDamage = Number((base.missingHpDamage * multiplier).toFixed(2));
+      if (upgraded.manaMultiplier) upgraded.manaMultiplier = Math.ceil(base.manaMultiplier * multiplier);
+      if (upgraded.winDamage) upgraded.winDamage = Math.ceil(base.winDamage * multiplier);
+      if (upgraded.loseDamage) upgraded.loseDamage = Math.ceil(base.loseDamage * multiplier);
+      if (upgraded.winHeal) upgraded.winHeal = Math.ceil(base.winHeal * multiplier);
+      if (upgraded.winDamageBoss) upgraded.winDamageBoss = Math.ceil(base.winDamageBoss * multiplier);
+      let upDesc = base.desc;
+      if (base.damage) upDesc = upDesc.replace(`${base.damage}\uC758 \uD53C\uD574`, `${upgraded.damage}\uC758 \uD53C\uD574`);
+      if (base.block) upDesc = upDesc.replace(`${base.block}\uC758 \uBC29\uC5B4\uB3C4`, `${upgraded.block}\uC758 \uBC29\uC5B4\uB3C4`);
+      if (base.heal) upDesc = upDesc.replace(`\uCCB4\uB825\uC744 ${base.heal}`, `\uCCB4\uB825\uC744 ${upgraded.heal}`);
+      if (base.percentBlockMaxHp) upDesc = upDesc.replace(`${base.percentBlockMaxHp}%`, `${upgraded.percentBlockMaxHp}%`);
+      if (base.missingHpDamage) upDesc = upDesc.replace(`${base.missingHpDamage * 100}%`, `${Math.round(upgraded.missingHpDamage * 100)}%`);
+      if (base.manaMultiplier) upDesc = upDesc.replace(`\uB9C8\uB098 1\uB2F9 ${base.manaMultiplier}`, `\uB9C8\uB098 1\uB2F9 ${upgraded.manaMultiplier}`);
+      if (base.winDamage) upDesc = upDesc.replace(`${base.winDamage}\uC758 \uD53C\uD574`, `${upgraded.winDamage}\uC758 \uD53C\uD574`);
+      if (base.winHeal) upDesc = upDesc.replace(`\uCCB4\uB825\uC744 ${base.winHeal}`, `\uCCB4\uB825\uC744 ${upgraded.winHeal}`);
+      upgraded.desc = upDesc;
+      return upgraded;
+    }
+    return base;
+  };
+  const generateEnemyIntent = (template, stage) => {
+    const baseCard = template.deck[Math.floor(Math.random() * template.deck.length)];
+    let scaledValue = baseCard.value || 0;
+    let scaledHeal = baseCard.heal || 0;
+    if (scaledValue > 0) {
+      scaledValue += Math.floor(stage * 0.8);
+      if (stage > 20) scaledValue += Math.floor((stage - 20) * 0.7);
+    }
+    if (scaledHeal > 0) {
+      scaledHeal += Math.floor(stage * 2);
+    }
+    let scaledDesc = baseCard.desc;
+    if (baseCard.value && scaledValue > 0) scaledDesc = scaledDesc.replace(baseCard.value.toString(), scaledValue.toString());
+    if (baseCard.heal && scaledHeal > 0) scaledDesc = scaledDesc.replace(baseCard.heal.toString(), scaledHeal.toString());
+    return { ...baseCard, value: scaledValue, heal: scaledHeal, desc: scaledDesc };
+  };
+  const generateEnemies = (stage) => {
+    let templates = [];
+    if (SPECIAL_BOSSES[stage]) {
+      const bossData = SPECIAL_BOSSES[stage];
+      if (stage === 100) templates = [bossData, bossData, bossData];
+      else templates = [bossData];
+    } else if (stage % 5 === 0) {
+      templates = [NORMAL_BOSSES[Math.floor(Math.random() * NORMAL_BOSSES.length)]];
+    } else {
+      templates = [ENEMIES[Math.floor(Math.random() * ENEMIES.length)]];
+    }
+    return templates.map((template, i) => {
+      let hp = template.baseHp + stage * 8;
+      if (stage > 20) hp += (stage - 20) * 10;
+      if (stage > 50) hp += (stage - 50) * 15;
+      return {
+        uid: Math.random().toString(),
+        name: templates.length > 1 ? `${template.name} ${String.fromCharCode(65 + i)}` : template.name,
+        hp,
+        maxHp: hp,
+        block: 0,
+        isBoss: stage % 5 === 0,
+        template,
+        intentCard: generateEnemyIntent(template, stage),
+        debuffs: { weak: 0, vulnerable: 0 },
+        buffs: { strength: 0 },
+        passives: template.passives ? JSON.parse(JSON.stringify(template.passives)) : []
+      };
+    });
+  };
+  const toggleFullScreen = () => {
+    const doc2 = window.document;
+    const docEl = doc2.documentElement;
+    const requestFullScreen = docEl.requestFullscreen || docEl.webkitRequestFullscreen || docEl.mozRequestFullScreen || docEl.msRequestFullscreen;
+    const cancelFullScreen = doc2.exitFullscreen || doc2.mozCancelFullScreen || doc2.webkitExitFullscreen || doc2.msExitFullscreen;
+    if (!doc2.fullscreenElement && !doc2.mozFullScreenElement && !doc2.webkitFullscreenElement && !doc2.msFullscreenElement) {
+      if (requestFullScreen) {
+        requestFullScreen.call(docEl).catch((err) => {
+          setIsCssFullScreen(!isCssFullScreen);
+        });
+      } else {
+        setIsCssFullScreen(!isCssFullScreen);
+      }
+    } else {
+      if (cancelFullScreen) {
+        cancelFullScreen.call(doc2);
+      }
+      setIsCssFullScreen(false);
+    }
+  };
+  const handleExport = () => {
+    const data = JSON.stringify({ deckCounts, unlockedCards, credits, shopUpgrades, normalCleared, fastMode, maxStageReached, usedCoupons, seenEnemies, startingRelic, seenRelics });
+    const encoded = btoa(encodeURIComponent(data));
+    const textArea = document.createElement("textarea");
+    textArea.value = encoded;
+    document.body.appendChild(textArea);
+    textArea.select();
+    document.execCommand("copy");
+    textArea.remove();
+    setToastMsg("\uC804\uCCB4 \uC138\uC774\uBE0C \uCF54\uB4DC\uAC00 \uBCF5\uC0AC\uB418\uC5C8\uC2B5\uB2C8\uB2E4!");
+    setTimeout(() => setToastMsg(""), 2e3);
+  };
+  const handleImport = (encoded) => {
+    try {
+      const decoded = decodeURIComponent(atob(encoded));
+      const data = JSON.parse(decoded);
+      if (data.deckCounts && data.unlockedCards) {
+        setDeckCounts(data.deckCounts);
+        const safeCards = (data.unlockedCards || []).filter((id) => CARD_LIBRARY.some((c) => c.id === id));
+        setUnlockedCards(safeCards);
+        if (data.credits !== void 0) setCredits(data.credits);
+        if (data.shopUpgrades) setShopUpgrades(data.shopUpgrades);
+        if (data.normalCleared !== void 0) setNormalCleared(data.normalCleared);
+        if (data.fastMode !== void 0) setFastMode(data.fastMode);
+        if (data.maxStageReached !== void 0) setMaxStageReached(data.maxStageReached);
+        if (data.usedCoupons) setUsedCoupons(data.usedCoupons);
+        if (data.seenEnemies) setSeenEnemies(data.seenEnemies);
+        if (data.startingRelic) setStartingRelic(data.startingRelic);
+        if (data.seenRelics) setSeenRelics(data.seenRelics);
+        saveGame(data);
+        setToastMsg("\uB370\uC774\uD130\uB97C \uC131\uACF5\uC801\uC73C\uB85C \uBD88\uB7EC\uC654\uC2B5\uB2C8\uB2E4!");
+        setImportModalOpen(false);
+        setImportText("");
+      } else throw new Error("Invalid format");
+    } catch (e) {
+      setToastMsg("\uC798\uBABB \uC138\uC774\uBE0C \uCF54\uB4DC\uC785\uB2C8\uB2E4.");
+      setTimeout(() => setToastMsg(""), 2e3);
+    }
+  };
+  const handleDeckExport = () => {
+    const data = JSON.stringify({ type: "deck_only", deckCounts: tempDeckCounts });
+    const encoded = btoa(encodeURIComponent(data));
+    const textArea = document.createElement("textarea");
+    textArea.value = encoded;
+    document.body.appendChild(textArea);
+    textArea.select();
+    document.execCommand("copy");
+    textArea.remove();
+    setToastMsg("\uB371 \uCF54\uB4DC\uAC00 \uBCF5\uC0AC\uB418\uC5C8\uC2B5\uB2C8\uB2E4!");
+    setTimeout(() => setToastMsg(""), 2e3);
+  };
+  const handleDeckImport = () => {
+    try {
+      const decoded = decodeURIComponent(atob(deckImportText));
+      const data = JSON.parse(decoded);
+      if (data.type === "deck_only" && data.deckCounts) {
+        setTempDeckCounts(data.deckCounts);
+        setToastMsg("\uB371\uC744 \uC131\uACF5\uC801\uC73C\uB85C \uBD88\uB7EC\uC654\uC2B5\uB2C8\uB2E4! (\uC800\uC7A5 \uD544\uC218)");
+        setDeckImportModalOpen(false);
+        setDeckImportText("");
+      } else throw new Error("Invalid format");
+    } catch (e) {
+      setToastMsg("\uC798\uBABB\uB41C \uB371 \uCF54\uB4DC\uC785\uB2C8\uB2E4.");
+      setTimeout(() => setToastMsg(""), 2e3);
+    }
+  };
+  const handleCoupon = () => {
+    const code = couponInput.trim().toUpperCase();
+    if (!code) return;
+    if ((usedCoupons || []).includes(code)) {
+      setToastMsg("\uC774\uBBF8 \uC0AC\uC6A9\uD55C \uCFE0\uD3F0\uC785\uB2C8\uB2E4.");
+      setTimeout(() => setToastMsg(""), 2e3);
+      return;
+    }
+    let newCredits = credits;
+    let newUnlocked = [...unlockedCards || []];
+    let valid = false;
+    let msg = "";
+    if (code === "WELCOME") {
+      newCredits += 1e3;
+      msg = "\uC6F0\uCEF4 \uCFE0\uD3F0: 1000 \uD06C\uB808\uB527 \uD68D\uB4DD!";
+      valid = true;
+    } else if (code === "LEGENDARY") {
+      if (!newUnlocked.includes("true_dragon_slayer")) newUnlocked.push("true_dragon_slayer");
+      msg = "\uC804\uC124 \uCFE0\uD3F0: \uC9C4\xB7\uC6A9\uC0B4\uAC80 \uD68D\uB4DD!";
+      valid = true;
+    } else if (code === "GEMS") {
+      newCredits += 500;
+      msg = "\uBCF4\uC11D \uCFE0\uD3F0: 500 \uD06C\uB808\uB527 \uD68D\uB4DD!";
+      valid = true;
+    } else if (code === "EZ") {
+      newCredits += 500;
+      msg = "\uBC84\uADF8 \uBCF4\uC0C1: 500 \uD06C\uB808\uB527 \uD68D\uB4DD!";
+      valid = true;
+    }
+    if (valid) {
+      const updatedCoupons = [...usedCoupons || [], code];
+      setCredits(newCredits);
+      setUnlockedCards(newUnlocked);
+      setUsedCoupons(updatedCoupons);
+      saveGame({ credits: newCredits, unlockedCards: newUnlocked, usedCoupons: updatedCoupons });
+      setToastMsg(msg);
+      setCouponInput("");
+    } else {
+      setToastMsg("\uC720\uD6A8\uD558\uC9C0 \uC54A\uC740 \uCFE0\uD3F0 \uCF54\uB4DC\uC785\uB2C8\uB2E4.");
+      setTimeout(() => setToastMsg(""), 2e3);
+    }
+  };
+  const openDeckBuilder = () => {
+    setTempDeckCounts({ ...deckCounts });
+    setFilterType("all");
+    setFilterEffect("all");
+    setFilterRarity("all");
+    setSearchQuery("");
+    setGameState("DECK_BUILDING");
+  };
+  const openEncyclopedia = () => {
+    setFilterType("all");
+    setFilterEffect("all");
+    setFilterRarity("all");
+    setSearchQuery("");
+    setGameState("ENCYCLOPEDIA");
+  };
+  const openMonsterDex = () => {
+    setGameState("MONSTER_DEX");
+  };
+  const openRelicDex = () => {
+    setGameState("RELIC_DEX");
+  };
+  const openShop = () => {
+    const hasLeaky = playerRelics.includes("leaky_pocket");
+    if (hasLeaky && credits > 0) {
+      const lost = Math.floor(credits / 2);
+      setCredits((prev) => prev - lost);
+      setToastMsg(`[\uAD6C\uBA4D \uB09C \uC8FC\uBA38\uB2C8] \uC0C1\uC810 \uC9C4\uC785 \uC911 ${lost} \uD06C\uB808\uB527\uC744 \uC783\uC5C8\uC2B5\uB2C8\uB2E4...`);
+    }
+    setShopFilterType("all");
+    setShopFilterEffect("all");
+    setShopFilterRarity("all");
+    setShopSearchQuery("");
+    setGameState("SHOP");
+  };
+  const handleAddCard = (id) => {
+    if (isActionLocked) return;
+    if (!(unlockedCards || []).includes(id)) return;
+    setIsActionLocked(true);
+    setTempDeckCounts((prev) => {
+      const currentTotal = Object.values(prev || {}).reduce((a, b) => a + b, 0);
+      if (currentTotal >= 20) return prev;
+      if ((prev[id] || 0) >= 3) return prev;
+      const manaCards = ["mana_potion", "overcharge", "meditate", "dark_bargain", "catalyst", "blood_ritual", "mana_amp", "mana_spring", "mana_burst", "lucky_coin"];
+      if (manaCards.includes(id)) {
+        const totalMana = manaCards.reduce((acc, cId) => acc + (prev[cId] || 0), 0);
+        if (totalMana >= 2) {
+          setToastMsg("\uB9C8\uB098 \uAD00\uB828 \uCE74\uB4DC\uB294 \uB371\uC5D0 \uCD5C\uB300 2\uC7A5\uAE4C\uC9C0\uB9CC \uB123\uC744 \uC218 \uC788\uC2B5\uB2C8\uB2E4.");
+          setTimeout(() => setToastMsg(""), 2e3);
+          return prev;
+        }
+      }
+      return { ...prev, [id]: (prev[id] || 0) + 1 };
+    });
+    setTimeout(() => setIsActionLocked(false), 50);
+  };
+  const handleRemoveCard = (id) => {
+    if (isActionLocked) return;
+    setIsActionLocked(true);
+    setTempDeckCounts((prev) => {
+      if ((prev[id] || 0) <= 0) return prev;
+      return { ...prev, [id]: prev[id] - 1 };
+    });
+    setTimeout(() => setIsActionLocked(false), 50);
+  };
+  const handleClearDeck = () => {
+    setTempDeckCounts({});
+  };
+  const handleAdminUnlock = () => {
+    if (adminCodeInput === "20090324") {
+      setIsAdminUnlocked(true);
+      setToastMsg("\uAC1C\uBC1C\uC790 \uAD8C\uD55C\uC774 \uD65C\uC131\uD654\uB418\uC5C8\uC2B5\uB2C8\uB2E4.");
+    } else {
+      setToastMsg("\uC798\uBABB\uB41C \uCF54\uB4DC\uC785\uB2C8\uB2E4.");
+    }
+    setTimeout(() => setToastMsg(""), 2e3);
+  };
+  const adminGiveMoney = () => {
+    const newCredits = credits + 99999;
+    setCredits(newCredits);
+    saveGame({ credits: newCredits });
+    setToastMsg("\uD06C\uB808\uB527 99,999 \uC9C0\uAE09 \uC644\uB8CC!");
+    setTimeout(() => setToastMsg(""), 2e3);
+  };
+  const adminUnlockAllCards = () => {
+    const allIds = CARD_LIBRARY.map((c) => c.id);
+    setUnlockedCards(allIds);
+    saveGame({ unlockedCards: allIds });
+    setToastMsg("\uBAA8\uB4E0 \uCE74\uB4DC\uAC00 \uD574\uAE08\uB418\uC5C8\uC2B5\uB2C8\uB2E4!");
+    setTimeout(() => setToastMsg(""), 2e3);
+  };
+  const handleGacha = () => {
+    if (credits < 50) return;
+    let pulled = [];
+    let refund = 0;
+    const validPool = CARD_LIBRARY.filter((c) => c.rarity !== "special");
+    const getWeighted = (pool) => {
+      const r = Math.random();
+      let t = "common";
+      if (r > 0.89 && r <= 0.99) t = "uncommon";
+      else if (r > 0.99) t = "rare";
+      let filtered = pool.filter((c) => c.rarity === t);
+      if (filtered.length === 0) filtered = pool;
+      return filtered[Math.floor(Math.random() * filtered.length)];
+    };
+    for (let i = 0; i < 3; i++) {
+      const picked = getWeighted(validPool);
+      if (picked) pulled.push({ ...picked });
+    }
+    pulled.forEach((c) => {
+      if ((unlockedCards || []).includes(c.id)) {
+        c.isDuplicate = true;
+        refund += 10;
+      }
+    });
+    const newCredits = credits - 50 + refund;
+    const newUnlockedIds = pulled.map((c) => c.id);
+    const newUnlockedCards = [.../* @__PURE__ */ new Set([...unlockedCards || [], ...newUnlockedIds])];
+    setCredits(newCredits);
+    setUnlockedCards(newUnlockedCards);
+    setGachaResult(pulled.map((c) => ({ ...getCardDef(c.id), isDuplicate: c.isDuplicate })));
+    saveGame({ credits: newCredits, unlockedCards: newUnlockedCards });
+  };
+  const handlePremiumGacha = () => {
+    if (credits < 100) return;
+    setCredits((prev) => prev - 100);
+    let pulled = [];
+    const validPool = CARD_LIBRARY.filter((c) => c.rarity !== "special");
+    const getWeighted = () => {
+      const r = Math.random();
+      let t = "common";
+      if (r > 0.78 && r <= 0.98) t = "uncommon";
+      else if (r > 0.98) t = "rare";
+      let filtered = validPool.filter((c) => c.rarity === t);
+      if (filtered.length === 0) filtered = validPool;
+      return filtered[Math.floor(Math.random() * filtered.length)];
+    };
+    for (let i = 0; i < 3; i++) {
+      const picked = getWeighted();
+      if (picked) pulled.push({ ...picked });
+    }
+    setPremiumGachaResult(pulled.map((c) => getCardDef(c.id)));
+  };
+  const selectPremiumCard = (cardDef) => {
+    const isOwned = (unlockedCards || []).includes(cardDef.id);
+    const newUnlocked = isOwned ? unlockedCards : [...unlockedCards || [], cardDef.id];
+    if (isOwned) {
+      setCredits((prev) => prev + 20);
+      setToastMsg("\uC911\uBCF5 \uCE74\uB4DC\uB97C \uC120\uD0DD\uD558\uC5EC 20 \uD06C\uB808\uB527\uC744 \uB3CC\uB824\uBC1B\uC558\uC2B5\uB2C8\uB2E4.");
+    } else {
+      setToastMsg(`${cardDef.name} \uD68D\uB4DD!`);
+    }
+    setUnlockedCards(newUnlocked);
+    setPremiumGachaResult(null);
+    saveGame({ unlockedCards: newUnlocked });
+  };
+  const startBattle = (mode = "NORMAL", startingStage = 1) => {
+    let fullDeck = [];
+    const forceUpgrade = startingRelic === "master_vocab";
+    Object.keys(deckCounts || {}).forEach((id) => {
+      const count = deckCounts[id];
+      const cardDef = getCardDef(id, forceUpgrade);
+      for (let i = 0; i < count; i++) {
+        if (cardDef) fullDeck.push({ ...cardDef });
+      }
+    });
+    const shuffled = shuffle(fullDeck);
+    let initialDrawPile = [...shuffled];
+    let initialHand = [];
+    let initialDraw = 5;
+    if (startingRelic === "heavy_shackles") initialDraw = 4;
+    if (startingRelic === "crystal_ball") initialDraw += 2;
+    for (let i = 0; i < initialDraw; i++) {
+      if (initialDrawPile.length > 0) initialHand.push({ ...initialDrawPile.pop(), uid: Math.random().toString() });
+    }
+    if (startingRelic === "torn_note") {
+      initialHand[0] = { id: "slime_trash", name: "\uC810\uC561", type: "skill", cost: 0, rarity: "common", desc: "\uC544\uBB34 \uD6A8\uACFC\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.", uid: Math.random().toString() };
+    }
+    let pMaxHp = 100 + (shopUpgrades?.maxHp || 0) * 15;
+    if (startingRelic === "heavy_anchor") pMaxHp += 10;
+    let pMana = 3;
+    let pMaxMana = 3;
+    if (startingRelic === "flawless_code") {
+      pMana = 4;
+      pMaxMana = 4;
+    }
+    if (startingRelic === "cursed_mana_stone") {
+      pMana = 2;
+      pMaxMana = 2;
+    }
+    if (startingRelic === "ancient_mana_stone") pMana += 2;
+    let pBlock = 0;
+    if (startingRelic === "blood_shield") pBlock = 10;
+    let pBuffs = { strength: 0, dexterity: 0 };
+    if (startingRelic === "warrior_whetstone") pBuffs.strength += 1;
+    let pDebuffs = { weak: 0, vulnerable: 0 };
+    if (startingRelic === "dull_reflexes") {
+      pDebuffs.weak += 2;
+      pDebuffs.vulnerable += 2;
+    }
+    if (startingRelic === "demon_horn") pDebuffs.vulnerable += 1;
+    let generatedEnemies = generateEnemies(startingStage);
+    updateSeenEnemies(generatedEnemies);
+    generatedEnemies.forEach((e) => {
+      if (startingRelic === "midterm_note") e.hp = Math.max(1, e.hp - 10);
+      if (startingRelic === "demon_horn") e.debuffs.weak += 1;
+    });
+    if (startingRelic === "weakness_analyzer" && generatedEnemies.length > 0) {
+      generatedEnemies[Math.floor(Math.random() * generatedEnemies.length)].debuffs.vulnerable += 2;
+    }
+    if (startingRelic === "absolute_eye" && generatedEnemies.some((e) => e.isBoss)) {
+      generatedEnemies.forEach((e) => {
+        if (e.isBoss) e.hp = Math.ceil(e.hp * 0.7);
+      });
+    }
+    if (startingRelic === "forbidden_timer_start" && generatedEnemies.length > 0) {
+      const target = generatedEnemies[Math.floor(Math.random() * generatedEnemies.length)];
+      target.debuffs.weak += 3;
+      target.debuffs.vulnerable += 3;
+    }
+    let activeRelics = startingRelic ? [startingRelic] : [];
+    setPlayerRelics(activeRelics);
+    setCombatState({
+      mode,
+      player: { hp: pMaxHp, maxHp: pMaxHp, mana: pMana, maxMana: pMaxMana, block: pBlock, debuffs: pDebuffs, buffs: pBuffs, hasPhoenix: activeRelics.includes("phoenix_feather"), turnsPassed: 0, guardianUsed: false },
+      enemies: generatedEnemies,
+      hand: initialHand,
+      drawPile: initialDrawPile,
+      discardPile: [],
+      turn: "PLAYER",
+      stage: startingStage,
+      baseDeck: fullDeck,
+      cardsPlayedThisTurn: 0,
+      firstAttackPlayed: false,
+      firstHitTaken: false,
+      secretDaggerUsed: false,
+      wizardWandBonus: 0
+    });
+    if (startingRelic === "fairy_tear" && generatedEnemies.some((e) => e.isBoss)) {
+      setCombatState((prev) => {
+        let p = { ...prev.player };
+        p.hp = Math.min(p.maxHp, p.hp + 20);
+        return { ...prev, player: p };
+      });
+    }
+    setSkipModalOpen(false);
+    setRewardCards([]);
+    setGameState("BATTLE");
+  };
+  const startNextStage = (newPlayer, newBaseDeck) => {
+    const nextStage = combatState.stage + 1;
+    const nextEnemies = generateEnemies(nextStage);
+    updateSeenEnemies(nextEnemies);
+    const reshuffled = shuffle([...newBaseDeck]);
+    let startHand = [];
+    let startDraw = [...reshuffled];
+    let initialDraw = 5;
+    if (playerRelics.includes("heavy_shackles")) initialDraw = 4;
+    for (let i = 0; i < initialDraw; i++) {
+      if (startDraw.length > 0) startHand.push({ ...startDraw.pop(), uid: Math.random().toString() });
+    }
+    if (playerRelics.includes("absolute_eye") && nextEnemies.some((e) => e.isBoss)) {
+      nextEnemies.forEach((e) => {
+        if (e.isBoss) e.hp = Math.ceil(e.hp * 0.7);
+      });
+    }
+    let pBuffs = { ...newPlayer.buffs, dexterity: 0 };
+    if (playerRelics.includes("light_feather")) pBuffs.dexterity += 1;
+    let newHp = newPlayer.hp;
+    if (playerRelics.includes("fairy_tear") && nextEnemies.some((e) => e.isBoss)) {
+      newHp = Math.min(newPlayer.maxHp, newHp + 20);
+    }
+    setCombatState({
+      ...combatState,
+      stage: nextStage,
+      player: { ...newPlayer, hp: newHp, block: 0, mana: newPlayer.maxMana, debuffs: { weak: 0, vulnerable: 0 }, buffs: pBuffs },
+      enemies: nextEnemies,
+      baseDeck: newBaseDeck,
+      hand: startHand,
+      drawPile: startDraw,
+      discardPile: [],
+      turn: "PLAYER",
+      cardsPlayedThisTurn: 0,
+      firstAttackPlayed: false,
+      firstHitTaken: false,
+      secretDaggerUsed: false,
+      wizardWandBonus: 0
+    });
+    setRewardCards([]);
+    setGameState("BATTLE");
+  };
+  useEffect(() => {
+    if (gameState !== "BATTLE" || !combatState || combatState.turn !== "ENEMY") return;
+    const timer = setTimeout(() => {
+      setCombatState((prev) => {
+        let p = { ...prev.player };
+        let newEnemies = prev.enemies.map((e) => ({ ...e, block: 0 }));
+        let pRelics = playerRelics;
+        newEnemies.forEach((e) => {
+          e.passives?.forEach((pass) => {
+            if (pass.id === "scaling_strength") e.buffs.strength = (e.buffs.strength || 0) + 3;
+          });
+        });
+        newEnemies.forEach((e) => {
+          let card = e.intentCard;
+          if (card.type.includes("attack")) {
+            let baseDmg = card.value + (e.buffs.strength || 0);
+            if (p.debuffs.vulnerable > 0) baseDmg = Math.floor(baseDmg * 1.3);
+            if (e.debuffs.weak > 0) baseDmg = Math.floor(baseDmg * 0.97);
+            if (pRelics.includes("lumia_backpack") && prev.cardsPlayedThisTurn >= 5) {
+              baseDmg = 1;
+            }
+            let hits = card.multi || 1;
+            for (let i = 0; i < hits; i++) {
+              let finalDmg = baseDmg;
+              if (pRelics.includes("turtle_shell") && !prev.firstHitTaken) {
+                finalDmg = Math.max(0, finalDmg - 3);
+                prev.firstHitTaken = true;
+              }
+              if (pRelics.includes("guardian_shield") && finalDmg >= 15 && !p.guardianUsed) {
+                finalDmg = Math.floor(finalDmg / 2);
+                p.guardianUsed = true;
+                setToastMsg("\uC218\uD638\uC790\uC758 \uBC29\uD328 \uBC1C\uB3D9!");
+              }
+              if (p.block >= finalDmg) p.block -= finalDmg;
+              else {
+                let leftover = finalDmg - p.block;
+                p.block = 0;
+                p.hp -= leftover;
+                if (pRelics.includes("thorns_armor")) e.hp -= 3;
+              }
+            }
+          }
+          if (card.type.includes("debuff")) {
+            if (card.debuff === "weak") p.debuffs.weak += card.turns;
+            if (card.debuff === "vulnerable") p.debuffs.vulnerable += card.turns;
+          }
+          if (card.type.includes("defend")) {
+            e.block += card.value;
+          }
+          if (card.type.includes("buff")) {
+            if (card.buff === "strength") e.buffs.strength = (e.buffs.strength || 0) + card.buffValue;
+          }
+          if (card.type.includes("heal")) {
+            e.hp = Math.min(e.maxHp, e.hp + (card.heal || 0));
+          }
+          e.debuffs.weak = decayStack(e.debuffs.weak);
+          e.debuffs.vulnerable = decayStack(e.debuffs.vulnerable);
+          e.buffs.strength = decayStack(e.buffs.strength);
+          e.intentCard = generateEnemyIntent(e.template, prev.stage);
+        });
+        if (p.hp <= 0 && p.hasPhoenix) {
+          p.hp = p.maxHp;
+          p.hasPhoenix = false;
+          setPlayerRelics((r) => r.filter((x) => x !== "phoenix_feather"));
+          setToastMsg("\uBD88\uC0AC\uC870\uC758 \uAE43\uD138\uB85C \uBD80\uD65C\uD588\uC2B5\uB2C8\uB2E4!");
+        }
+        if (p.hp <= 0) {
+          setGameState("GAME_OVER");
+          return prev;
+        }
+        p.block = 0;
+        p.mana = p.maxMana;
+        p.debuffs.weak = decayStack(p.debuffs.weak);
+        p.debuffs.vulnerable = decayStack(p.debuffs.vulnerable);
+        p.buffs.strength = decayStack(p.buffs.strength);
+        p.buffs.dexterity = decayStack(p.buffs.dexterity);
+        p.turnsPassed = (p.turnsPassed || 0) + 1;
+        if (pRelics.includes("forbidden_timer_curse") && p.turnsPassed % 5 === 0) {
+          p.maxHp = Math.max(1, p.maxHp - 5);
+          p.hp = Math.min(p.hp, p.maxHp);
+          setToastMsg("\uAE08\uC9C0\uAD6C\uC5ED\uC758 \uD0C0\uC774\uBA38: \uCD5C\uB300 \uCCB4\uB825\uC774 \uAC10\uC18C\uD588\uC2B5\uB2C8\uB2E4!");
+        }
+        if (pRelics.includes("spaghetti_code")) p.hp -= Math.floor(Math.random() * 3) + 1;
+        if (pRelics.includes("perfect_code_block")) p.block += 3;
+        if (pRelics.includes("pact_of_ruin")) p.hp -= 1;
+        if (pRelics.includes("poisoned_chalice")) {
+          p.hp -= 2;
+          p.buffs.strength += 1;
+        }
+        if (pRelics.includes("light_feather")) p.buffs.dexterity += 1;
+        if (pRelics.includes("black_rose_corset")) p.block += 10;
+        if (pRelics.includes("standard_backpack") && prev.baseDeck.length >= 30) p.block += 5;
+        if (p.hp <= 0 && p.hasPhoenix) {
+          p.hp = p.maxHp;
+          p.hasPhoenix = false;
+          setPlayerRelics((r) => r.filter((x) => x !== "phoenix_feather"));
+        }
+        if (p.hp <= 0) {
+          setGameState("GAME_OVER");
+          return prev;
+        }
+        let newDiscard = [...prev.discardPile, ...prev.hand];
+        let newDraw = [...prev.drawPile];
+        let newHand = [];
+        let drawAmount = 5;
+        if (pRelics.includes("heavy_shackles")) drawAmount -= 1;
+        if (pRelics.includes("endless_pouch")) drawAmount += 1;
+        if (pRelics.includes("pact_of_ruin")) drawAmount += 1;
+        for (let i = 0; i < drawAmount; i++) {
+          if (newHand.length >= MAX_HAND_SIZE) break;
+          if (newDraw.length === 0) {
+            if (newDiscard.length === 0) break;
+            newDraw = shuffle(newDiscard);
+            newDiscard = [];
+          }
+          if (newDraw.length > 0) newHand.push({ ...newDraw.pop(), uid: Math.random().toString() });
+        }
+        if (pRelics.includes("philosophers_stone") && newHand.length < MAX_HAND_SIZE) {
+          const rareAttacks = CARD_LIBRARY.filter((c) => c.rarity === "rare" && c.type === "attack");
+          if (rareAttacks.length > 0) {
+            const gen = { ...rareAttacks[Math.floor(Math.random() * rareAttacks.length)], cost: 0, uid: Math.random().toString() };
+            newHand.push(gen);
+          }
+        }
+        return { ...prev, player: p, enemies: newEnemies, hand: newHand, drawPile: newDraw, discardPile: newDiscard, turn: "PLAYER", cardsPlayedThisTurn: 0, firstAttackPlayed: false, firstHitTaken: false, secretDaggerUsed: false };
+      });
+    }, fastMode ? 500 : 1500);
+    return () => clearTimeout(timer);
+  }, [gameState, combatState?.turn, fastMode, playerRelics]);
+  const handlePlayerTurnEnd = () => {
+    let skipEnemy = false;
+    if (playerRelics.includes("hourglass") && Math.random() < 0.1) skipEnemy = true;
+    setCombatState((prev) => {
+      let p = { ...prev.player };
+      if (playerRelics.includes("healing_totem") && p.block > 0) p.hp = Math.min(p.maxHp, p.hp + 2);
+      if (playerRelics.includes("moss_of_regen") && p.mana > 0) p.hp = Math.min(p.maxHp, p.hp + p.mana * 2);
+      if (playerRelics.includes("censer_of_tranquility")) {
+        p.debuffs.weak = Math.max(0, p.debuffs.weak - 1);
+        p.debuffs.vulnerable = Math.max(0, p.debuffs.vulnerable - 1);
+      }
+      if (playerRelics.includes("light_feather")) p.buffs.dexterity = Math.max(0, p.buffs.dexterity - 1);
+      if (skipEnemy) {
+        setToastMsg("\uC2DC\uAC04\uC758 \uBAA8\uB798\uC2DC\uACC4: \uC801 \uD134\uC744 \uAC74\uB108\uB701\uB2C8\uB2E4!");
+        let newDiscard = [...prev.discardPile, ...prev.hand];
+        let newDraw = [...prev.drawPile];
+        let newHand = [];
+        let drawAmount = 5;
+        if (playerRelics.includes("heavy_shackles")) drawAmount -= 1;
+        if (playerRelics.includes("endless_pouch")) drawAmount += 1;
+        for (let i = 0; i < drawAmount; i++) {
+          if (newHand.length >= MAX_HAND_SIZE) break;
+          if (newDraw.length === 0) {
+            if (newDiscard.length === 0) break;
+            newDraw = shuffle(newDiscard);
+            newDiscard = [];
+          }
+          if (newDraw.length > 0) newHand.push({ ...newDraw.pop(), uid: Math.random().toString() });
+        }
+        p.mana = p.maxMana;
+        p.block = 0;
+        return { ...prev, player: p, hand: newHand, drawPile: newDraw, discardPile: newDiscard, turn: "PLAYER", cardsPlayedThisTurn: 0, firstAttackPlayed: false, firstHitTaken: false, secretDaggerUsed: false };
+      }
+      return { ...prev, player: p, turn: "ENEMY" };
+    });
+  };
+  useEffect(() => {
+    if (gameState === "BATTLE" && combatState?.turn === "PLAYER") {
+      const { player, hand } = combatState;
+      if (player.mana === 0 && !hand.some((card) => card.cost === 0)) {
+        const timer = setTimeout(() => {
+          setCombatState((prev) => {
+            if (prev.turn === "PLAYER" && prev.player.mana === 0) {
+              handlePlayerTurnEnd();
+              return prev;
+            }
+            return prev;
+          });
+        }, fastMode ? 300 : 800);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [gameState, combatState?.turn, combatState?.player?.mana, combatState?.hand, fastMode]);
+  const playCard = (cardIndex) => {
+    if (combatState.turn !== "PLAYER") return;
+    const card = combatState.hand[cardIndex];
+    if (combatState.player.mana < card.cost) return;
+    setCombatState((prev) => {
+      let p = { ...prev.player };
+      let newEnemies = [...prev.enemies];
+      let newHand = [...prev.hand];
+      let newDiscard = [...prev.discardPile];
+      let newDraw = [...prev.drawPile];
+      let pRelics = playerRelics;
+      p.mana -= card.cost;
+      let newCardsPlayed = prev.cardsPlayedThisTurn + 1;
+      let firstAttack = prev.firstAttackPlayed;
+      let wizardWand = prev.wizardWandBonus;
+      if (pRelics.includes("secret_dagger") && card.cost === 0 && !prev.secretDaggerUsed) {
+        p.mana += 1;
+        prev.secretDaggerUsed = true;
+      }
+      if (pRelics.includes("wizard_wand") && card.type.includes("skill")) wizardWand += 1;
+      let isGambleWin = true;
+      if (card.gamble) {
+        isGambleWin = Math.random() < card.gambleWinChance;
+      }
+      const dealDamageToFront = (baseDmgInput) => {
+        if (newEnemies.length === 0) return;
+        let target = newEnemies[0];
+        let dmg = baseDmgInput;
+        if (pRelics.includes("holy_sword_hilt") && card.type.includes("attack") && !firstAttack) {
+          dmg *= 3;
+        }
+        if (pRelics.includes("spiked_necklace") && card.type.includes("attack")) {
+          dmg += 2;
+        }
+        if (pRelics.includes("executioner_axe") && target.hp <= target.maxHp * 0.2) {
+          dmg = Math.floor(dmg * 1.5);
+        }
+        if (pRelics.includes("mercenary_contract") && card.type.includes("attack")) {
+          dmg += Math.floor(credits / 100);
+        }
+        dmg += p.buffs.strength || 0;
+        if (p.debuffs.weak > 0) dmg = Math.floor(dmg * 0.97);
+        if (target.debuffs.vulnerable > 0) dmg = Math.floor(dmg * 1.3);
+        if (target.block >= dmg) {
+          target.block -= dmg;
+        } else {
+          target.hp -= dmg - target.block;
+          target.block = 0;
+        }
+        if (target.hp <= 0) {
+          if (pRelics.includes("vampire_teeth")) p.hp = Math.min(p.maxHp, p.hp + 3);
+          const reviveIdx = target.passives.findIndex((pass) => pass.id === "revive");
+          if (reviveIdx > -1) {
+            target.hp = Math.floor(target.maxHp / 2);
+            target.passives.splice(reviveIdx, 1);
+            setToastMsg(`${target.name} \uBD80\uD65C!`);
+            setTimeout(() => setToastMsg(""), 1500);
+          } else {
+            newEnemies.shift();
+          }
+        }
+      };
+      const gainBlock = (amount) => {
+        let blk = amount;
+        if (pRelics.includes("corroded_shield")) blk = Math.floor(blk * 0.7);
+        blk += p.buffs.dexterity || 0;
+        if (card.type.includes("defend")) blk += wizardWand;
+        p.block += blk;
+      };
+      if (card.type.includes("attack")) firstAttack = true;
+      if (card.gamble) {
+        if (isGambleWin) {
+          setToastMsg("\uB3C4\uBC15 \uC131\uACF5! \u{1F389}");
+          if (card.winDamage) {
+            if (newEnemies.length > 0 && newEnemies[0].isBoss && card.winDamageBoss) {
+              dealDamageToFront(card.winDamageBoss);
+            } else {
+              dealDamageToFront(card.winDamage);
+            }
+          }
+          if (card.winManaGain) p.mana += card.winManaGain;
+          if (card.winHeal) p.hp = Math.min(p.maxHp, p.hp + card.winHeal);
+        } else {
+          setToastMsg("\uB3C4\uBC15 \uC2E4\uD328... \u{1F480}");
+          if (card.loseDamage) dealDamageToFront(card.loseDamage);
+          if (card.loseSelfDamage) p.hp -= card.loseSelfDamage;
+          if (card.losePercentMaxHpDamage) p.hp -= Math.floor(p.maxHp * card.losePercentMaxHpDamage);
+          if (card.loseDraw) {
+            for (let i = 0; i < card.loseDraw; i++) {
+              if (newHand.length >= MAX_HAND_SIZE) break;
+              if (newDraw.length === 0) {
+                if (newDiscard.length === 0) break;
+                newDraw = shuffle(newDiscard);
+                newDiscard = [];
+              }
+              if (newDraw.length > 0) newHand.push({ ...newDraw.pop(), uid: Math.random().toString() });
+            }
+          }
+        }
+      } else {
+        if (card.percentBlockMaxHp) gainBlock(Math.floor(p.maxHp * (card.percentBlockMaxHp / 100)));
+        if (card.doubleBlock) p.block *= 2;
+        if (card.missingHpDamage) {
+          let baseDmg = card.damage || 0;
+          baseDmg += Math.floor((p.maxHp - p.hp) * card.missingHpDamage);
+          dealDamageToFront(baseDmg);
+        } else if (card.consumeAllMana) {
+          let baseDmg = card.damage || 0;
+          baseDmg += p.mana * card.manaMultiplier;
+          p.mana = 0;
+          dealDamageToFront(baseDmg);
+        } else if (card.damage) {
+          const hits = card.multiHit || 1;
+          for (let i = 0; i < hits; i++) dealDamageToFront(card.damage);
+        }
+      }
+      if (card.block && !card.doubleBlock && !card.percentBlockMaxHp) gainBlock(card.block);
+      if (card.heal && !card.gamble) p.hp = Math.min(p.maxHp, p.hp + card.heal);
+      if (card.manaGain && !card.gamble) p.mana += card.manaGain;
+      if (card.selfDamage && !card.gamble) p.hp -= card.selfDamage;
+      if (card.selfStrength) p.buffs.strength += card.selfStrength;
+      if (card.selfDex) p.buffs.dexterity += card.selfDex;
+      if (newEnemies.length > 0) {
+        let target = newEnemies[0];
+        if (card.enemyWeak) target.debuffs.weak += card.enemyWeak;
+        if (card.enemyVuln) target.debuffs.vulnerable += card.enemyVuln;
+        if (pRelics.includes("poison_bottle") && card.id === "strike") target.debuffs.weak += 1;
+      }
+      if (pRelics.includes("giant_glove") && card.cost >= 2) gainBlock(4);
+      let drawCount = card.draw || 0;
+      if (pRelics.includes("gothic_choker") && (card.type.includes("skill") || card.type.includes("defend")) && Math.random() < 0.1) drawCount += 1;
+      for (let i = 0; i < drawCount; i++) {
+        if (newHand.length >= MAX_HAND_SIZE - 1) break;
+        if (newDraw.length === 0) {
+          if (newDiscard.length === 0) break;
+          newDraw = shuffle(newDiscard);
+          newDiscard = [];
+        }
+        if (newDraw.length > 0) newHand.push({ ...newDraw.pop(), uid: Math.random().toString() });
+      }
+      newHand.splice(cardIndex, 1);
+      newDiscard.push(card);
+      if (p.hp <= 0 && p.hasPhoenix) {
+        p.hp = p.maxHp;
+        p.hasPhoenix = false;
+        setPlayerRelics((r) => r.filter((x) => x !== "phoenix_feather"));
+      }
+      if (p.hp <= 0) {
+        setGameState("GAME_OVER");
+        return prev;
+      }
+      if (newEnemies.length === 0) {
+        if (prev.stage >= maxStageReached) {
+          setMaxStageReached(prev.stage + 1);
+          saveGame({ maxStageReached: prev.stage + 1 });
+        }
+        if (pRelics.includes("black_rose_corset")) {
+          p.hp = Math.min(p.maxHp, p.hp + Math.floor((p.maxHp - p.hp) * 0.2));
+        }
+        let bossBonus = Math.floor(prev.stage / 5) * 5;
+        let earned = 5 + Math.floor(prev.stage * 1) + bossBonus;
+        if (prev.stage % 5 === 0) earned += 15;
+        if (prev.mode === "HARD") earned *= 2;
+        if (pRelics.includes("blessed_coin")) earned = Math.floor(earned * 1.2);
+        if (pRelics.includes("pot_of_greed")) earned *= 2;
+        if (pRelics.includes("blood_contract") && prev.stage % 5 !== 0) earned = 0;
+        const newCredits = credits + earned;
+        setCredits(newCredits);
+        if (pRelics.includes("old_vocab_book") && Math.random() < 0.1) {
+          shopUpgrades.maxHp += 0.1;
+        }
+        saveGame({ credits: newCredits });
+        setHoveredCard(null);
+        const specialReward = getSpecialBossReward(prev.stage);
+        if (specialReward) {
+          setSpecialBossRewardCard(specialReward);
+          setTimeout(() => setGameState("BOSS_CLEAR_REWARD"), fastMode ? 200 : 600);
+          return { ...prev, player: p, enemies: [], hand: [], discardPile: [], drawPile: [] };
+        }
+        if (prev.mode === "NORMAL" && prev.stage >= 100) {
+          setNormalCleared(true);
+          saveGame({ normalCleared: true });
+          setGameState("GAME_CLEAR");
+          return { ...prev, player: p, enemies: [], hand: [], discardPile: [], drawPile: [] };
+        }
+        setTimeout(() => setGameState("REWARDS"), fastMode ? 200 : 600);
+        return { ...prev, player: p, enemies: [], hand: [], discardPile: [], drawPile: [] };
+      }
+      return { ...prev, player: p, enemies: newEnemies, hand: newHand, discardPile: newDiscard, drawPile: newDraw, cardsPlayedThisTurn: newCardsPlayed, firstAttackPlayed: firstAttack, wizardWandBonus: wizardWand };
+    });
+  };
+  const handleRelicRewardClaim = (relic) => {
+    setPlayerRelics((prev) => [...prev, relic.id]);
+    updateSeenRelic(relic.id);
+    setRewardRelic(null);
+    setToastMsg(`${relic.name} \uD68D\uB4DD!`);
+    if (combatState.mode === "NORMAL" && combatState.stage >= 100) {
+      setNormalCleared(true);
+      saveGame({ normalCleared: true });
+      setGameState("GAME_CLEAR");
+    } else {
+      setGameState("REWARDS");
+    }
+  };
+  const handleSpecialBossRewardClaim = () => {
+    if (specialBossRewardCard && combatState) {
+      const isOwned = (unlockedCards || []).includes(specialBossRewardCard.id);
+      const newUnlocked = isOwned ? unlockedCards : [...unlockedCards || [], specialBossRewardCard.id];
+      setCombatState((prev) => {
+        if (!prev) return prev;
+        return { ...prev, baseDeck: [...prev.baseDeck, { ...specialBossRewardCard }] };
+      });
+      setUnlockedCards(newUnlocked);
+      saveGame({ unlockedCards: newUnlocked });
+      setToastMsg(`${specialBossRewardCard.name}\uC744(\uB97C) \uB371\uC5D0 \uCD94\uAC00\uD588\uC2B5\uB2C8\uB2E4!`);
+      setSpecialBossRewardCard(null);
+      if (combatState.mode === "NORMAL" && combatState.stage >= 100) {
+        setNormalCleared(true);
+        saveGame({ normalCleared: true });
+        setGameState("GAME_CLEAR");
+      } else {
+        setGameState("REWARDS");
+      }
+    }
+  };
+  const getFilteredCards = (targetFilterType = filterType, targetFilterEffect = filterEffect, targetFilterRarity = filterRarity, targetSearchQuery = searchQuery) => {
+    return CARD_LIBRARY.filter((c) => {
+      if (targetFilterRarity !== "all" && c.rarity !== targetFilterRarity) return false;
+      if (targetFilterType !== "all" && c.type !== targetFilterType) return false;
+      if (targetFilterEffect === "debuff" && !(c.enemyWeak || c.enemyVuln)) return false;
+      if (targetFilterEffect === "buff" && !(c.selfStrength || c.selfDex)) return false;
+      if (targetSearchQuery) {
+        const query = targetSearchQuery.toLowerCase();
+        const cardDef = getCardDef(c.id);
+        if (cardDef && !cardDef.name.toLowerCase().includes(query) && !cardDef.desc.toLowerCase().includes(query)) return false;
+      }
+      return true;
+    });
+  };
+  const renderTooltipIcon = (desc) => {
+    if (!desc) return null;
+    const tooltips = [];
+    if (desc.includes("\uC57D\uD654")) tooltips.push({ title: "\uC57D\uD654", desc: "\uAC00\uD558\uB294 \uD53C\uD574\uAC00 3% \uAC10\uC18C\uD569\uB2C8\uB2E4. (\uD134\uB9C8\uB2E4 \uC218\uCE58 \uBE44\uB840 \uAC10\uC18C)" });
+    if (desc.includes("\uCDE8\uC57D")) tooltips.push({ title: "\uCDE8\uC57D", desc: "\uBC1B\uB294 \uD53C\uD574\uAC00 30% \uC99D\uAC00\uD569\uB2C8\uB2E4. (\uD134\uB9C8\uB2E4 \uC218\uCE58 \uBE44\uB840 \uAC10\uC18C)" });
+    if (desc.includes("\uADFC\uB825")) tooltips.push({ title: "\uADFC\uB825", desc: "\uACF5\uACA9 \uCE74\uB4DC\uC758 \uD53C\uD574\uB7C9\uC774 \uC99D\uAC00\uD569\uB2C8\uB2E4. (\uD134\uB9C8\uB2E4 \uC218\uCE58 \uBE44\uB840 \uAC10\uC18C)" });
+    if (desc.includes("\uBBFC\uCCA9")) tooltips.push({ title: "\uBBFC\uCCA9", desc: "\uBC29\uC5B4 \uCE74\uB4DC\uC758 \uBC29\uC5B4\uB3C4\uAC00 \uC99D\uAC00\uD569\uB2C8\uB2E4. (\uD134\uB9C8\uB2E4 \uC218\uCE58 \uBE44\uB840 \uAC10\uC18C)" });
+    if (desc.includes("\uB3C4\uBC15")) tooltips.push({ title: "\uB3C4\uBC15", desc: "\uD655\uB960\uC5D0 \uB530\uB77C \uCD94\uAC00 \uD6A8\uACFC\uAC00 \uBC1C\uC0DD\uD558\uAC70\uB098 \uD328\uB110\uD2F0\uB97C \uBC1B\uC2B5\uB2C8\uB2E4." });
+    if (tooltips.length === 0) return null;
+    return /* @__PURE__ */ React.createElement("div", { tabIndex: "0", className: "tooltip-trigger inline-flex items-center ml-1 text-slate-400 cursor-help relative z-[9999] outline-none" }, /* @__PURE__ */ React.createElement(Info, { className: "w-4 h-4" }), /* @__PURE__ */ React.createElement("div", { className: "tooltip-content absolute bottom-[120%] left-1/2 -translate-x-1/2 mb-1 w-56 bg-slate-800 text-white text-xs p-2 rounded border border-slate-600 shadow-xl pointer-events-none z-[9999] flex flex-col gap-1.5" }, tooltips.map((t, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "text-left leading-tight" }, /* @__PURE__ */ React.createElement("span", { className: "font-bold text-orange-400" }, t.title, ":"), " ", t.desc))));
+  };
+  const renderFiltersUI = (type, setType, effect, setEffect, rarity, setRarity, search, setSearch) => /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-4 mb-6 w-full max-w-6xl mx-auto px-4 bg-slate-800/40 p-4 rounded-xl border border-slate-700 shadow-inner" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 w-full md:w-1/2" }, /* @__PURE__ */ React.createElement(Search, { className: "w-5 h-5 text-slate-400 mr-2 shrink-0" }), /* @__PURE__ */ React.createElement("input", { type: "text", placeholder: "\uCE74\uB4DC \uC774\uB984\uC774\uB098 \uD6A8\uACFC \uAC80\uC0C9...", className: "bg-transparent border-none outline-none text-white w-full font-bold text-sm placeholder-slate-500", value: search, onChange: (e) => setSearch(e.target.value) })), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-x-6 gap-y-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 overflow-x-auto hide-scrollbar py-1 items-center" }, /* @__PURE__ */ React.createElement("span", { className: "text-slate-400 text-sm font-bold w-10 shrink-0" }, "\uC885\uB958"), /* @__PURE__ */ React.createElement("button", { onClick: () => setType("all"), className: `px-3 py-1.5 rounded-full font-bold text-xs shrink-0 transition-colors ${type === "all" ? "bg-indigo-600 text-white shadow-md" : "bg-slate-700 hover:bg-slate-600 text-slate-300"}` }, "\uC804\uCCB4"), /* @__PURE__ */ React.createElement("button", { onClick: () => setType("attack"), className: `px-3 py-1.5 rounded-full font-bold text-xs shrink-0 transition-colors ${type === "attack" ? "bg-red-600 text-white shadow-md" : "bg-slate-700 hover:bg-slate-600 text-slate-300"}` }, "\uC804\uD22C (\uACF5\uACA9)"), /* @__PURE__ */ React.createElement("button", { onClick: () => setType("skill"), className: `px-3 py-1.5 rounded-full font-bold text-xs shrink-0 transition-colors ${type === "skill" ? "bg-blue-600 text-white shadow-md" : "bg-slate-700 hover:bg-slate-600 text-slate-300"}` }, "\uBCF4\uC870 (\uC2A4\uD0AC)")), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 overflow-x-auto hide-scrollbar py-1 items-center" }, /* @__PURE__ */ React.createElement("span", { className: "text-slate-400 text-sm font-bold w-10 shrink-0" }, "\uD6A8\uACFC"), /* @__PURE__ */ React.createElement("button", { onClick: () => setEffect("all"), className: `px-3 py-1.5 rounded-full font-bold text-xs shrink-0 transition-colors ${effect === "all" ? "bg-indigo-600 text-white shadow-md" : "bg-slate-700 hover:bg-slate-600 text-slate-300"}` }, "\uBAA8\uB4E0 \uD6A8\uACFC"), /* @__PURE__ */ React.createElement("button", { onClick: () => setEffect("debuff"), className: `px-3 py-1.5 rounded-full font-bold text-xs shrink-0 transition-colors ${effect === "debuff" ? "bg-purple-600 text-white shadow-md" : "bg-slate-700 hover:bg-slate-600 text-slate-300"}` }, "\uB514\uBC84\uD504 (\uC57D\uD654/\uCDE8\uC57D)"), /* @__PURE__ */ React.createElement("button", { onClick: () => setEffect("buff"), className: `px-3 py-1.5 rounded-full font-bold text-xs shrink-0 transition-colors ${effect === "buff" ? "bg-green-600 text-white shadow-md" : "bg-slate-700 hover:bg-slate-600 text-slate-300"}` }, "\uBC84\uD504 (\uADFC\uB825/\uBBFC\uCCA9)")), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 overflow-x-auto hide-scrollbar py-1 items-center" }, /* @__PURE__ */ React.createElement("span", { className: "text-slate-400 text-sm font-bold w-10 shrink-0" }, "\uB4F1\uAE09"), /* @__PURE__ */ React.createElement("button", { onClick: () => setRarity("all"), className: `px-3 py-1.5 rounded-full font-bold text-xs shrink-0 transition-colors ${rarity === "all" ? "bg-indigo-600 text-white shadow-md" : "bg-slate-700 hover:bg-slate-600 text-slate-300"}` }, "\uC804\uCCB4"), /* @__PURE__ */ React.createElement("button", { onClick: () => setRarity("common"), className: `px-3 py-1.5 rounded-full font-bold text-xs shrink-0 transition-colors ${rarity === "common" ? "bg-slate-500 text-white shadow-md" : "bg-slate-700 hover:bg-slate-600 text-slate-300"}` }, "\uC77C\uBC18"), /* @__PURE__ */ React.createElement("button", { onClick: () => setRarity("uncommon"), className: `px-3 py-1.5 rounded-full font-bold text-xs shrink-0 transition-colors ${rarity === "uncommon" ? "bg-cyan-600 text-white shadow-md" : "bg-slate-700 hover:bg-slate-600 text-slate-300"}` }, "\uD76C\uADC0"), /* @__PURE__ */ React.createElement("button", { onClick: () => setRarity("rare"), className: `px-3 py-1.5 rounded-full font-bold text-xs shrink-0 transition-colors ${rarity === "rare" ? "bg-yellow-600 text-white shadow-md" : "bg-slate-700 hover:bg-slate-600 text-slate-300"}` }, "\uC804\uC124"), /* @__PURE__ */ React.createElement("button", { onClick: () => setRarity("special"), className: `px-3 py-1.5 rounded-full font-bold text-xs shrink-0 transition-colors ${rarity === "special" ? "bg-fuchsia-900 text-white shadow-md" : "bg-slate-700 hover:bg-slate-600 text-slate-300"}` }, "\uD2B9\uC218/\uBCF4\uC2A4"))));
+  const renderCard = (card, count = null, isLocked = false, onAdd = null, onRemove = null, customClick = null) => {
+    if (!card) return null;
+    const isAttack = card.type === "attack";
+    const borderStyle = isAttack ? "border-red-500" : "border-blue-500";
+    let rarityShadow = "";
+    let nameColor = "text-white";
+    let tagUi = null;
+    let bgStyle = "bg-slate-900";
+    if (card.rarity === "uncommon") {
+      rarityShadow = "shadow-[0_0_12px_rgba(34,211,238,0.4)]";
+      nameColor = "text-cyan-300";
+      tagUi = /* @__PURE__ */ React.createElement("span", { className: "text-[10px] text-cyan-400 font-bold bg-slate-800/80 px-1 rounded border border-cyan-800" }, "\uD76C\uADC0");
+    } else if (card.rarity === "rare") {
+      rarityShadow = "shadow-[0_0_20px_rgba(250,204,21,0.6)]";
+      nameColor = "text-yellow-300 drop-shadow-[0_0_5px_rgba(250,204,21,0.8)]";
+      tagUi = /* @__PURE__ */ React.createElement("span", { className: "text-[10px] text-yellow-400 font-bold bg-slate-800/80 px-1 rounded border border-yellow-700" }, "\uC804\uC124");
+      bgStyle = "legendary-bg";
+    } else if (card.rarity === "special") {
+      rarityShadow = "shadow-[0_0_25px_rgba(217,70,239,0.7)]";
+      nameColor = "text-fuchsia-300 drop-shadow-[0_0_8px_rgba(217,70,239,0.8)]";
+      tagUi = /* @__PURE__ */ React.createElement("span", { className: "text-[10px] text-fuchsia-400 font-bold bg-slate-800/80 px-1 rounded border border-fuchsia-800" }, /* @__PURE__ */ React.createElement(Star, { className: "w-2 h-2 inline mb-0.5" }), "\uD2B9\uC218");
+      bgStyle = "special-bg";
+    } else {
+      tagUi = /* @__PURE__ */ React.createElement("span", { className: "text-[10px] text-slate-400 font-bold bg-slate-800/80 px-1 rounded border border-slate-600" }, "\uC77C\uBC18");
+    }
+    if (card.isUpgraded) {
+      rarityShadow = "shadow-[0_0_15px_rgba(234,179,8,0.4)]";
+      nameColor = "text-yellow-400";
+      bgStyle = card.rarity === "special" ? "special-bg" : "bg-slate-900";
+    }
+    const lockStyle = isLocked ? "opacity-60 grayscale border-slate-700 bg-slate-900" : `${borderStyle} ${rarityShadow} ${bgStyle}`;
+    return /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        key: card.id,
+        onClick: customClick,
+        className: `border-2 p-2 md:p-3 rounded-xl flex flex-col justify-between relative transition-all ${customClick ? "cursor-pointer hover:-translate-y-2" : ""} ${lockStyle} w-full h-[220px] md:h-[280px] shrink-0 overflow-visible`
+      },
+      isLocked && /* @__PURE__ */ React.createElement("div", { className: "absolute inset-0 bg-slate-900/80 z-10 flex flex-col items-center justify-center backdrop-blur-[1px] rounded-xl pointer-events-none" }, /* @__PURE__ */ React.createElement(Lock, { className: "w-8 h-8 text-slate-400 mb-2" }), /* @__PURE__ */ React.createElement("span", { className: "text-yellow-400 font-bold text-xs bg-black/80 px-2 py-1 rounded" }, "\uBBF8\uBCF4\uC720")),
+      /* @__PURE__ */ React.createElement("div", { className: "z-10 relative" }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-between items-start mb-2" }, /* @__PURE__ */ React.createElement("span", { className: "font-bold text-[10px] md:text-sm bg-slate-800 px-2 py-1 rounded text-white shadow-inner border border-slate-700" }, "\uCF54\uC2A4\uD2B8 ", card.cost), /* @__PURE__ */ React.createElement("div", { className: "flex flex-col items-end gap-1" }, tagUi, isAttack ? /* @__PURE__ */ React.createElement(Sword, { className: `w-4 h-4 md:w-5 md:h-5 ${card.isUpgraded ? "text-yellow-400" : card.rarity === "rare" ? "text-yellow-300" : card.rarity === "special" ? "text-fuchsia-300" : "text-red-400"}` }) : /* @__PURE__ */ React.createElement(Shield, { className: `w-4 h-4 md:w-5 md:h-5 ${card.isUpgraded ? "text-yellow-400" : card.rarity === "rare" ? "text-yellow-300" : card.rarity === "special" ? "text-fuchsia-300" : "text-blue-400"}` }))), /* @__PURE__ */ React.createElement("div", { className: "text-center mb-auto mt-1" }, /* @__PURE__ */ React.createElement("h4", { className: `font-extrabold text-sm md:text-base leading-tight drop-shadow-md ${nameColor}` }, card.name))),
+      /* @__PURE__ */ React.createElement("div", { className: "text-[10px] md:text-xs text-slate-200 text-center leading-tight bg-black/60 p-2 rounded relative mt-2 flex-1 flex items-center justify-center overflow-visible z-10 font-medium" }, /* @__PURE__ */ React.createElement("div", { className: "w-full break-words" }, card.desc, " ", renderTooltipIcon(card.desc))),
+      count !== null && onAdd && onRemove && /* @__PURE__ */ React.createElement("div", { className: "mt-2 flex items-center justify-between bg-slate-800/90 border border-slate-600 px-2 py-1.5 rounded-lg z-20 shrink-0 backdrop-blur-sm" }, /* @__PURE__ */ React.createElement("button", { onClick: (e) => {
+        e.stopPropagation();
+        onRemove(card.id);
+      }, disabled: isLocked, className: `w-6 h-6 md:w-8 md:h-8 flex justify-center items-center rounded-full font-bold text-base md:text-lg ${count > 0 && !isLocked ? "bg-slate-600 hover:bg-slate-500 text-white" : "bg-slate-800 text-slate-600"}` }, "-"), /* @__PURE__ */ React.createElement("span", { className: "w-4 text-center font-bold text-sm md:text-base text-white" }, count), /* @__PURE__ */ React.createElement("button", { onClick: (e) => {
+        e.stopPropagation();
+        onAdd(card.id);
+      }, disabled: isLocked, className: `w-6 h-6 md:w-8 md:h-8 flex justify-center items-center rounded-full font-bold text-base md:text-lg ${count < 3 && getTotalCards(tempDeckCounts) < 20 && !isLocked ? "bg-slate-600 hover:bg-slate-500 text-white" : "bg-slate-800 text-slate-600"}` }, "+"))
+    );
+  };
+  const renderTutorialModal = () => /* @__PURE__ */ React.createElement("div", { className: "fixed inset-0 bg-black/90 z-[9999] flex flex-col items-center justify-center p-4 backdrop-blur-md" }, /* @__PURE__ */ React.createElement("div", { className: "bg-slate-800 p-6 md:p-10 rounded-2xl border-2 border-slate-500 w-full max-w-3xl overflow-y-auto max-h-[90vh] shadow-[0_0_30px_rgba(0,0,0,0.8)] animate-draw" }, /* @__PURE__ */ React.createElement("h2", { className: "text-3xl md:text-4xl font-black mb-6 text-center text-white flex items-center justify-center gap-3" }, /* @__PURE__ */ React.createElement(HelpCircle, { className: "w-8 h-8 text-indigo-400" }), " \uAC8C\uC784 \uBC29\uBC95"), /* @__PURE__ */ React.createElement("div", { className: "space-y-6 text-slate-300 leading-relaxed text-sm md:text-base" }, /* @__PURE__ */ React.createElement("div", { className: "bg-slate-900 p-4 rounded-lg border border-slate-700" }, /* @__PURE__ */ React.createElement("h3", { className: "text-xl font-bold text-indigo-300 mb-2" }, "\u2694\uFE0F \uC804\uD22C \uC9C4\uD589"), /* @__PURE__ */ React.createElement("ul", { className: "list-disc pl-5 space-y-1" }, /* @__PURE__ */ React.createElement("li", null, "\uD50C\uB808\uC774\uC5B4\uB294 \uB9E4 \uD134 3\uC758 ", /* @__PURE__ */ React.createElement("strong", null, "\uB9C8\uB098"), "\uB97C \uD68C\uBCF5\uD558\uACE0, \uCD5C\uB300 10\uC7A5\uAE4C\uC9C0 \uCE74\uB4DC\uB97C \uBF51\uC2B5\uB2C8\uB2E4."), /* @__PURE__ */ React.createElement("li", null, "\uACF5\uACA9 \uCE74\uB4DC\uB294 \uD56D\uC0C1 ", /* @__PURE__ */ React.createElement("strong", null, "\uAC00\uC7A5 \uC55E(\u25BC \uD0C0\uAC9F)"), "\uC5D0 \uC788\uB294 \uC801\uC744 \uD5A5\uD569\uB2C8\uB2E4. \uC801\uC744 \uC4F0\uB7EC\uB728\uB9AC\uBA74 \uB4A4\uC758 \uC801\uC774 \uC55E\uC73C\uB85C \uB2F9\uACA8\uC9D1\uB2C8\uB2E4."), /* @__PURE__ */ React.createElement("li", null, "\uB0B4 \uD134\uC774 \uB05D\uB098\uBA74 \uC190\uC5D0 \uB0A8\uC740 \uCE74\uB4DC\uB294 \uBAA8\uB450 \uBB34\uB364\uC73C\uB85C \uBC84\uB824\uC9D1\uB2C8\uB2E4. \uCE74\uB4DC\uB97C \uB2E4 \uC4F0\uBA74 \uBB34\uB364\uC758 \uCE74\uB4DC\uB97C \uC11E\uC5B4 \uB2E4\uC2DC \uBF51\uC2B5\uB2C8\uB2E4."))), /* @__PURE__ */ React.createElement("div", { className: "bg-slate-900 p-4 rounded-lg border border-slate-700" }, /* @__PURE__ */ React.createElement("h3", { className: "text-xl font-bold text-purple-300 mb-2" }, "\u2728 \uBC84\uD504\uC640 \uB514\uBC84\uD504"), /* @__PURE__ */ React.createElement("ul", { className: "list-disc pl-5 space-y-1" }, /* @__PURE__ */ React.createElement("li", null, /* @__PURE__ */ React.createElement("strong", { className: "text-red-400" }, "\uADFC\uB825"), ": \uACF5\uACA9 \uCE74\uB4DC\uC758 \uCD5C\uC885 \uD53C\uD574\uB7C9\uC774 \uD0C0\uC218\uB9C8\uB2E4 \uC99D\uAC00\uD569\uB2C8\uB2E4. (\uD134\uB9C8\uB2E4 \uC218\uCE58 \uBE44\uB840 \uAC10\uC18C)"), /* @__PURE__ */ React.createElement("li", null, /* @__PURE__ */ React.createElement("strong", { className: "text-blue-400" }, "\uBBFC\uCCA9"), ": \uBC29\uC5B4 \uCE74\uB4DC\uC758 \uBC29\uC5B4\uB3C4 \uD68D\uB4DD\uB7C9\uC774 \uC99D\uAC00\uD569\uB2C8\uB2E4. (\uD134\uB9C8\uB2E4 \uC218\uCE58 \uBE44\uB840 \uAC10\uC18C)"), /* @__PURE__ */ React.createElement("li", null, /* @__PURE__ */ React.createElement("strong", { className: "text-orange-400" }, "\uC57D\uD654"), ": \uACF5\uACA9 \uC2DC \uAC00\uD558\uB294 \uD53C\uD574\uAC00 3% \uAC10\uC18C\uD569\uB2C8\uB2E4. (\uD134\uB9C8\uB2E4 \uC218\uCE58 \uBE44\uB840 \uAC10\uC18C)"), /* @__PURE__ */ React.createElement("li", null, /* @__PURE__ */ React.createElement("strong", { className: "text-purple-400" }, "\uCDE8\uC57D"), ": \uACF5\uACA9 \uBC1B\uC744 \uB54C \uC785\uB294 \uD53C\uD574\uAC00 30% \uC99D\uAC00\uD569\uB2C8\uB2E4. (\uD134\uB9C8\uB2E4 \uC218\uCE58 \uBE44\uB840 \uAC10\uC18C)"))), /* @__PURE__ */ React.createElement("div", { className: "bg-slate-900 p-4 rounded-lg border border-slate-700" }, /* @__PURE__ */ React.createElement("h3", { className: "text-xl font-bold text-yellow-400 mb-2" }, "\u{1F381} \uC0C1\uC810\uACFC \uB4F1\uAE09"), /* @__PURE__ */ React.createElement("ul", { className: "list-disc pl-5 space-y-1" }, /* @__PURE__ */ React.createElement("li", null, "\uC801\uC744 \uC4F0\uB7EC\uB728\uB9AC\uACE0 \uC5BB\uC740 \uD06C\uB808\uB527\uC73C\uB85C ", /* @__PURE__ */ React.createElement("strong", null, "\uCD5C\uB300 \uCCB4\uB825 \uC99D\uAC00"), ", ", /* @__PURE__ */ React.createElement("strong", null, "\uCE74\uB4DC \uC601\uAD6C \uAC15\uD654"), ", ", /* @__PURE__ */ React.createElement("strong", null, "\uC0C8\uB85C\uC6B4 \uCE74\uB4DC \uBF51\uAE30(\uAC00\uCC60)"), "\uB97C \uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4."), /* @__PURE__ */ React.createElement("li", null, "\uCE74\uB4DC \uB4F1\uAE09: ", /* @__PURE__ */ React.createElement("span", { className: "text-slate-400 font-bold" }, "\uC77C\uBC18(Common)"), " / ", /* @__PURE__ */ React.createElement("span", { className: "text-cyan-400 font-bold" }, "\uD76C\uADC0(Uncommon)"), " / ", /* @__PURE__ */ React.createElement("span", { className: "text-yellow-400 font-bold" }, "\uC804\uC124(Rare)")), /* @__PURE__ */ React.createElement("li", null, "\uC804\uC124 \uCE74\uB4DC\uB294 \uC5C4\uCCAD\uB09C \uC131\uB2A5\uC744 \uC790\uB791\uD558\uBA70 \uBC30\uACBD\uACFC \uD14C\uB450\uB9AC \uD6A8\uACFC\uB85C \uAD6C\uBCC4\uB429\uB2C8\uB2E4!")))), /* @__PURE__ */ React.createElement("button", { onClick: () => setTutorialModalOpen(false), className: "mt-8 w-full py-4 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-xl font-bold transition-all shadow-[0_0_15px_rgba(79,70,229,0.5)]" }, "\uD655\uC778\uD588\uC2B5\uB2C8\uB2E4")));
+  const renderMenu = () => /* @__PURE__ */ React.createElement("div", { className: "flex flex-col items-center justify-center min-h-[100dvh] bg-slate-900 text-white p-4 relative overflow-hidden" }, /* @__PURE__ */ React.createElement("button", { onClick: toggleFullScreen, className: "fixed top-4 left-4 flex z-50 items-center gap-2 bg-slate-800 hover:bg-slate-700 px-3 py-2 rounded text-sm font-bold transition-colors border border-slate-600" }, /* @__PURE__ */ React.createElement(Maximize, { className: "w-4 h-4" }), " ", /* @__PURE__ */ React.createElement("span", { className: "hidden sm:inline" }, "\uC804\uCCB4\uD654\uBA74")), toastMsg && /* @__PURE__ */ React.createElement("div", { className: "fixed top-10 left-1/2 -translate-x-1/2 bg-green-600 px-6 py-3 rounded shadow-lg font-bold animate-pulse z-50 whitespace-nowrap" }, toastMsg), /* @__PURE__ */ React.createElement(Sword, { className: "w-24 h-24 mb-6 text-indigo-500 animate-pulse" }), /* @__PURE__ */ React.createElement("h1", { className: "text-4xl md:text-5xl font-bold mb-4 tracking-wider text-center" }, "\uB85C\uADF8\uB77C\uC774\uD06C \uD0DD\uD2F1\uC2A4"), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 bg-yellow-900/50 text-yellow-400 px-4 py-2 rounded-full font-bold mb-8 border border-yellow-700 shadow-inner" }, /* @__PURE__ */ React.createElement(Coins, { className: "w-5 h-5" }), " ", credits, " \uD06C\uB808\uB527"), /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-3 w-full max-w-[280px]" }, /* @__PURE__ */ React.createElement("button", { onClick: openDeckBuilder, className: "py-3 px-6 bg-slate-700 hover:bg-slate-600 rounded-lg text-lg font-bold transition-all" }, "\uB371 \uAD6C\uC131 (", getTotalCards(), "/20)"), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("button", { onClick: openEncyclopedia, className: "py-3 bg-slate-800 hover:bg-slate-700 rounded-lg text-lg font-bold transition-all flex justify-center items-center gap-2 border border-slate-600 flex-1" }, /* @__PURE__ */ React.createElement(Book, { className: "w-5 h-5" }), " \uB3C4\uAC10"), /* @__PURE__ */ React.createElement("button", { onClick: openMonsterDex, className: "py-3 bg-slate-800 hover:bg-slate-700 rounded-lg text-lg font-bold transition-all flex justify-center items-center gap-2 border border-slate-600 flex-1" }, /* @__PURE__ */ React.createElement(Skull, { className: "w-5 h-5 text-red-400" }), " \uC801 \uC815\uBCF4")), /* @__PURE__ */ React.createElement("button", { onClick: openShop, className: "py-3 px-6 bg-yellow-600 hover:bg-yellow-500 rounded-lg text-lg font-bold transition-all flex justify-center items-center gap-2 shadow-[0_0_10px_rgba(202,138,4,0.3)]" }, /* @__PURE__ */ React.createElement(Store, { className: "w-5 h-5" }), " \uC0C1\uC810"), /* @__PURE__ */ React.createElement("button", { onClick: openRelicDex, className: "py-3 px-6 bg-fuchsia-900/50 hover:bg-fuchsia-800/60 border border-fuchsia-700 rounded-lg text-lg font-bold transition-all flex justify-center items-center gap-2 text-fuchsia-300" }, /* @__PURE__ */ React.createElement(Box, { className: "w-5 h-5" }), " \uC720\uBB3C \uB3C4\uAC10"), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setTutorialModalOpen(true), className: "py-3 bg-blue-800 hover:bg-blue-700 rounded-lg text-lg font-bold transition-all flex justify-center items-center gap-2 border border-blue-600 flex-1" }, /* @__PURE__ */ React.createElement(HelpCircle, { className: "w-5 h-5" }), " \uBC29\uBC95"), /* @__PURE__ */ React.createElement("button", { onClick: () => setGameState("SETTINGS"), className: "py-3 bg-slate-800 hover:bg-slate-700 rounded-lg text-lg font-bold transition-all flex justify-center items-center gap-2 border border-slate-600 flex-1" }, /* @__PURE__ */ React.createElement(Settings, { className: "w-5 h-5" }), " \uC124\uC815")), /* @__PURE__ */ React.createElement("hr", { className: "border-slate-700 my-2" }), /* @__PURE__ */ React.createElement("button", { onClick: () => startBattle("NORMAL"), disabled: getTotalCards() !== 20, className: `py-3 px-6 rounded-lg text-lg font-bold transition-all ${getTotalCards() === 20 ? "bg-indigo-600 hover:bg-indigo-500 shadow-[0_0_15px_rgba(79,70,229,0.5)]" : "bg-slate-800 text-slate-500 cursor-not-allowed"}` }, "\uC77C\uBC18 \uBAA8\uB4DC (100\uCE35)"), /* @__PURE__ */ React.createElement("button", { onClick: () => startBattle("HARD"), disabled: !normalCleared || getTotalCards() !== 20, className: `py-2 px-6 rounded-lg text-base font-bold transition-all flex flex-col items-center ${normalCleared && getTotalCards() === 20 ? "bg-red-700 hover:bg-red-600 shadow-[0_0_15px_rgba(220,38,38,0.5)] text-white" : "bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700"}` }, "\uD558\uB4DC \uBAA8\uB4DC (\uBB34\uD55C)", !normalCleared && /* @__PURE__ */ React.createElement("span", { className: "text-[10px] text-red-400 mt-1" }, "\uC77C\uBC18 100\uCE35 \uD074\uB9AC\uC5B4 \uC2DC \uAC1C\uBC29")), maxStageReached >= 50 && /* @__PURE__ */ React.createElement("button", { onClick: () => setSkipModalOpen(true), className: "mt-2 py-2 px-6 rounded-lg text-base font-bold transition-all bg-emerald-700 hover:bg-emerald-600 shadow-[0_0_15px_rgba(16,185,129,0.4)] text-white flex flex-col items-center" }, "\uC2A4\uD14C\uC774\uC9C0 \uB3C4\uC57D (Skip)", /* @__PURE__ */ React.createElement("span", { className: "text-[10px] text-emerald-200 mt-1" }, "\uC6D0\uD558\uB294 \uCE35\uC5D0\uC11C \uC2DC\uC791"))), tutorialModalOpen && renderTutorialModal(), skipModalOpen && /* @__PURE__ */ React.createElement("div", { className: "fixed inset-0 bg-black/80 z-[9999] flex items-center justify-center p-4 backdrop-blur-sm" }, /* @__PURE__ */ React.createElement("div", { className: "bg-slate-800 p-6 rounded-xl border-2 border-emerald-600 w-full max-w-md animate-draw shadow-2xl" }, /* @__PURE__ */ React.createElement("h3", { className: "text-2xl font-bold mb-4 text-emerald-400" }, "\uC2A4\uD14C\uC774\uC9C0 \uB3C4\uC57D"), /* @__PURE__ */ React.createElement("p", { className: "text-slate-300 text-sm mb-4" }, "\uB3C4\uB2EC\uD588\uB358 \uCD5C\uACE0 \uCE35(", maxStageReached, "\uCE35)\uAE4C\uC9C0 \uAC74\uB108\uB6F8 \uC218 \uC788\uC2B5\uB2C8\uB2E4. \uB2E8, \uC911\uAC04 \uBCF4\uC0C1(\uCE74\uB4DC \uCD94\uAC00, \uC601\uAD6C \uC0AD\uC81C \uB4F1)\uC740 \uD68D\uB4DD\uD558\uC9C0 \uBABB\uD55C \uCC44 \uB371 \uAD6C\uC131 \uADF8\uB300\uB85C \uC2DC\uC791\uD558\uAC8C \uB429\uB2C8\uB2E4."), /* @__PURE__ */ React.createElement("div", { className: "flex gap-4 items-center bg-slate-900 p-4 rounded-lg mb-6 border border-slate-700" }, /* @__PURE__ */ React.createElement("span", { className: "font-bold whitespace-nowrap" }, "\uC2DC\uC791\uD560 \uCE35:"), /* @__PURE__ */ React.createElement(
+    "input",
+    {
+      type: "number",
+      min: "1",
+      max: maxStageReached,
+      value: warpStage,
+      onChange: (e) => {
+        let val = parseInt(e.target.value) || 1;
+        if (val > maxStageReached) val = maxStageReached;
+        setWarpStage(val);
+      },
+      className: "w-full bg-slate-800 border border-slate-600 rounded p-2 text-xl font-bold text-center outline-none focus:border-emerald-500"
+    }
+  )), /* @__PURE__ */ React.createElement("div", { className: "flex justify-end gap-3" }, /* @__PURE__ */ React.createElement("button", { onClick: () => setSkipModalOpen(false), className: "px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded font-bold" }, "\uCDE8\uC18C"), /* @__PURE__ */ React.createElement("button", { onClick: () => {
+    if (getTotalCards() === 20) {
+      startBattle("NORMAL", warpStage);
+    } else {
+      setToastMsg("\uB371\uC744 20\uC7A5 \uAD6C\uC131\uD574\uC57C \uD569\uB2C8\uB2E4.");
+      setTimeout(() => setToastMsg(""), 2e3);
+    }
+  }, className: "px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded font-bold shadow-[0_0_15px_rgba(16,185,129,0.5)]" }, "\uCD9C\uBC1C\uD558\uAE30")))));
+  const renderRelicDex = () => {
+    return /* @__PURE__ */ React.createElement("div", { className: "flex flex-col min-h-[100dvh] bg-slate-900 text-white pt-16 md:pt-4 p-4 md:p-10 relative" }, /* @__PURE__ */ React.createElement("button", { onClick: toggleFullScreen, className: "fixed top-4 left-4 z-50 flex items-center gap-2 bg-slate-800 hover:bg-slate-700 px-3 py-2 rounded text-sm font-bold transition-colors border border-slate-600" }, /* @__PURE__ */ React.createElement(Maximize, { className: "w-4 h-4" }), " ", /* @__PURE__ */ React.createElement("span", { className: "hidden md:inline" }, "\uC804\uCCB4\uD654\uBA74")), /* @__PURE__ */ React.createElement("div", { className: "flex justify-between items-center mb-8 pl-0 md:pl-32" }, /* @__PURE__ */ React.createElement("h2", { className: "text-2xl md:text-3xl font-bold flex items-center gap-3" }, /* @__PURE__ */ React.createElement(Box, { className: "w-8 h-8 text-fuchsia-400" }), " \uC720\uBB3C \uB3C4\uAC10"), /* @__PURE__ */ React.createElement("button", { onClick: () => setGameState("MENU"), className: "py-2 px-4 bg-indigo-600 hover:bg-indigo-500 rounded-lg font-bold text-sm md:text-base shrink-0 shadow-md" }, "\uBA54\uC778\uC73C\uB85C")), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 overflow-y-auto hide-scrollbar pb-10 w-full max-w-6xl mx-auto px-2" }, RELIC_LIBRARY.map((relic, idx) => {
+      const isSeen = seenRelics.includes(relic.id);
+      return /* @__PURE__ */ React.createElement("div", { key: idx, className: `p-4 rounded-xl border-2 flex flex-col items-center text-center justify-center relative transition-all min-h-[160px] shadow-lg ${isSeen ? "border-slate-600 bg-slate-800" : "border-slate-800 bg-slate-900 opacity-50"}` }, isSeen ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(Box, { className: `w-8 h-8 mb-2 ${relic.color}` }), /* @__PURE__ */ React.createElement("div", { className: `font-black text-sm md:text-md mb-2 ${relic.color}` }, relic.name), /* @__PURE__ */ React.createElement("div", { className: "text-[10px] md:text-xs text-slate-300 leading-tight bg-slate-900/50 p-2 rounded-lg w-full border border-slate-700/50" }, relic.desc)) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "blur-sm mb-2" }, /* @__PURE__ */ React.createElement(Box, { className: "w-8 h-8 text-slate-600" })), /* @__PURE__ */ React.createElement("div", { className: "text-sm font-bold text-slate-600" }, "\uBBF8\uBC1C\uACAC \uC720\uBB3C")));
+    })));
+  };
+  const renderMonsterDex = () => {
+    const allMonsters = [
+      ...ENEMIES.map((e) => ({ ...e, isBoss: false, hint: "\uC77C\uBC18 \uC2A4\uD14C\uC774\uC9C0\uC5D0\uC11C \uBB34\uC791\uC704\uB85C \uB4F1\uC7A5\uD569\uB2C8\uB2E4." })),
+      ...NORMAL_BOSSES.map((b, i) => ({ ...b, isBoss: true, hint: `${(i + 1) * 5}\uCE35 \uB4F1\uC5D0\uC11C \uB4F1\uC7A5\uD558\uB294 \uAC15\uB825 \uBCF4\uC2A4` })),
+      { ...SPECIAL_BOSSES[25], isBoss: true, hint: "25\uCE35\uC5D0\uC11C \uB4F1\uC7A5\uD558\uB294 \uD2B9\uC218 \uBCF4\uC2A4" },
+      { ...SPECIAL_BOSSES[50], isBoss: true, hint: "50\uCE35\uC5D0\uC11C \uB4F1\uC7A5\uD558\uB294 \uD2B9\uC218 \uBCF4\uC2A4" },
+      { ...SPECIAL_BOSSES[75], isBoss: true, hint: "75\uCE35\uC5D0\uC11C \uB4F1\uC7A5\uD558\uB294 \uD2B9\uC218 \uBCF4\uC2A4" },
+      { ...SPECIAL_BOSSES[100], isBoss: true, hint: "100\uCE35\uC744 \uC9C0\uD0A4\uB294 \uCD5C\uC885 \uBCF4\uC2A4" }
+    ];
+    return /* @__PURE__ */ React.createElement("div", { className: "flex flex-col min-h-[100dvh] bg-slate-900 text-white pt-16 md:pt-4 p-4 md:p-10 relative" }, /* @__PURE__ */ React.createElement("button", { onClick: toggleFullScreen, className: "fixed top-4 left-4 z-50 flex items-center gap-2 bg-slate-800 hover:bg-slate-700 px-3 py-2 rounded text-sm font-bold transition-colors border border-slate-600" }, /* @__PURE__ */ React.createElement(Maximize, { className: "w-4 h-4" }), " ", /* @__PURE__ */ React.createElement("span", { className: "hidden md:inline" }, "\uC804\uCCB4\uD654\uBA74")), /* @__PURE__ */ React.createElement("div", { className: "flex justify-between items-center mb-8 pl-0 md:pl-32" }, /* @__PURE__ */ React.createElement("h2", { className: "text-2xl md:text-3xl font-bold flex items-center gap-3" }, /* @__PURE__ */ React.createElement(FileQuestion, { className: "w-8 h-8 text-red-400" }), " \uBAAC\uC2A4\uD130 \uB3C4\uAC10"), /* @__PURE__ */ React.createElement("button", { onClick: () => setGameState("MENU"), className: "py-2 px-4 bg-indigo-600 hover:bg-indigo-500 rounded-lg font-bold text-sm md:text-base shrink-0 shadow-md" }, "\uBA54\uC778\uC73C\uB85C")), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 overflow-y-auto hide-scrollbar pb-10 w-full max-w-6xl mx-auto px-2" }, allMonsters.map((monster, idx) => {
+      const isSeen = seenEnemies.includes(monster.name);
+      return /* @__PURE__ */ React.createElement("div", { key: idx, onClick: () => isSeen && setDexViewingEnemy(monster), className: `p-5 rounded-xl border-2 flex flex-col relative overflow-visible transition-all h-auto min-h-[280px] shadow-lg group ${isSeen ? "cursor-pointer hover:-translate-y-2 hover:shadow-[0_0_20px_rgba(255,255,255,0.15)] " + (monster.isBoss ? "border-red-500 bg-red-950/40" : "border-slate-600 bg-slate-800") : "border-slate-800 bg-slate-900"}` }, isSeen ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-4 mb-4 border-b border-slate-700 pb-4" }, /* @__PURE__ */ React.createElement(Skull, { className: `w-10 h-10 md:w-12 md:h-12 ${monster.isBoss ? "text-red-400" : "text-slate-300"}` }), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: `font-black text-xl md:text-2xl ${monster.isBoss ? "text-red-300 drop-shadow-md" : "text-white"}` }, monster.name, " ", monster.isBoss && /* @__PURE__ */ React.createElement("span", { className: "text-xs bg-red-800 px-1.5 py-0.5 rounded ml-2 align-middle border border-red-500" }, "BOSS")), /* @__PURE__ */ React.createElement("div", { className: "text-sm text-slate-400 mt-1" }, "\uAE30\uBCF8 \uCCB4\uB825: ", monster.baseHp))), /* @__PURE__ */ React.createElement("div", { className: "flex-1" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-bold text-slate-300 mb-2" }, "\uC0AC\uC6A9 \uC2A4\uD0AC:"), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-2" }, monster.deck.map((skill, i) => /* @__PURE__ */ React.createElement("span", { tabIndex: "0", key: i, className: "text-xs font-bold bg-slate-700 text-slate-200 px-2.5 py-1.5 rounded shadow-sm tooltip-trigger relative cursor-help z-50 outline-none" }, skill.name, /* @__PURE__ */ React.createElement("div", { className: "tooltip-content absolute bottom-[120%] left-1/2 -translate-x-1/2 w-48 bg-slate-800 p-2 rounded text-center z-[9999] pointer-events-none text-white whitespace-normal shadow-xl border border-slate-600 font-normal leading-snug" }, skill.desc)))), monster.passives && monster.passives.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "mt-4" }, /* @__PURE__ */ React.createElement("div", { className: "text-sm font-bold text-yellow-400 mb-2" }, "\uD328\uC2DC\uBE0C:"), monster.passives.map((p) => /* @__PURE__ */ React.createElement("div", { key: p.id, className: "text-xs text-yellow-200 bg-yellow-900/30 border border-yellow-700/50 p-2 rounded leading-snug" }, /* @__PURE__ */ React.createElement("span", { className: "font-bold" }, p.name), ": ", p.desc)))), /* @__PURE__ */ React.createElement("div", { className: "absolute inset-0 bg-slate-900/80 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-xl backdrop-blur-sm z-20" }, /* @__PURE__ */ React.createElement("span", { className: "bg-indigo-600 text-white font-bold px-5 py-2.5 rounded-full shadow-[0_0_15px_rgba(79,70,229,0.6)]" }, "\uD074\uB9AD\uD558\uC5EC \uC2A4\uD0AC \uC0C1\uC138 \uBCF4\uAE30"))) : /* @__PURE__ */ React.createElement("div", { className: "flex flex-col items-center justify-center h-full opacity-60" }, /* @__PURE__ */ React.createElement("div", { className: "blur-md mb-4" }, /* @__PURE__ */ React.createElement(Skull, { className: "w-16 h-16 text-slate-600" })), /* @__PURE__ */ React.createElement("h3", { className: "text-xl font-black text-slate-500 tracking-widest mb-3" }, "???"), /* @__PURE__ */ React.createElement("p", { className: "text-sm text-slate-400 text-center px-4" }, monster.hint)));
+    })), dexViewingEnemy && /* @__PURE__ */ React.createElement("div", { className: "fixed inset-0 bg-black/85 z-[9999] flex items-center justify-center p-4 backdrop-blur-sm", onClick: () => setDexViewingEnemy(null) }, /* @__PURE__ */ React.createElement("div", { className: "bg-slate-800 p-4 md:p-6 rounded-2xl border-2 border-slate-600 w-full max-w-4xl max-h-[90vh] flex flex-col animate-draw shadow-2xl", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-between items-center mb-4 md:mb-6 border-b border-slate-600 pb-4 shrink-0" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-3" }, /* @__PURE__ */ React.createElement(Skull, { className: `w-8 h-8 md:w-10 md:h-10 ${dexViewingEnemy.isBoss ? "text-red-400" : "text-slate-300"}` }), /* @__PURE__ */ React.createElement("h3", { className: `text-2xl md:text-3xl font-black tracking-tight ${dexViewingEnemy.isBoss ? "text-red-400" : "text-white"}` }, dexViewingEnemy.name, dexViewingEnemy.isBoss && /* @__PURE__ */ React.createElement("span", { className: "text-xs md:text-sm bg-red-800 text-white px-2 py-1 rounded ml-3 align-middle border border-red-500 font-bold" }, "BOSS"))), /* @__PURE__ */ React.createElement("button", { onClick: () => setDexViewingEnemy(null), className: "px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg font-bold text-sm md:text-base border border-slate-500 transition-colors" }, "\uB2EB\uAE30")), /* @__PURE__ */ React.createElement("div", { className: "overflow-y-auto hide-scrollbar flex-1 pr-2" }, /* @__PURE__ */ React.createElement("div", { className: "mb-6 flex flex-wrap items-center gap-4" }, /* @__PURE__ */ React.createElement("span", { className: "text-sm md:text-base text-slate-200 font-bold bg-slate-900 px-4 py-2 rounded-lg border border-slate-700 shadow-inner" }, "\uAE30\uBCF8 \uCCB4\uB825: ", /* @__PURE__ */ React.createElement("span", { className: "text-green-400" }, dexViewingEnemy.baseHp))), dexViewingEnemy.passives && dexViewingEnemy.passives.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "mb-8" }, /* @__PURE__ */ React.createElement("h4", { className: "text-lg md:text-xl font-bold text-yellow-400 mb-3 flex items-center gap-2" }, /* @__PURE__ */ React.createElement(Zap, { className: "w-5 h-5" }), " \uD328\uC2DC\uBE0C \uC2A4\uD0AC"), /* @__PURE__ */ React.createElement("div", { className: "flex flex-col gap-3" }, dexViewingEnemy.passives.map((p) => /* @__PURE__ */ React.createElement("div", { key: p.id, className: "bg-yellow-900/20 border border-yellow-700/50 p-4 rounded-xl flex flex-col shadow-inner" }, /* @__PURE__ */ React.createElement("span", { className: "font-black text-yellow-400 text-base md:text-lg drop-shadow-md" }, p.name), /* @__PURE__ */ React.createElement("span", { className: "text-sm md:text-base text-yellow-100/80 mt-1" }, p.desc))))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h4", { className: "text-lg md:text-xl font-bold text-slate-200 mb-4 flex items-center gap-2" }, /* @__PURE__ */ React.createElement(Sword, { className: "w-5 h-5" }), " \uC0AC\uC6A9 \uC2A4\uD0AC (\uD328\uD134)"), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-5" }, dexViewingEnemy.deck.map((eCard, idx) => /* @__PURE__ */ React.createElement("div", { key: idx, className: `p-4 md:p-5 rounded-2xl border-2 flex flex-col justify-between shadow-lg transition-transform hover:-translate-y-1 ${eCard.type.includes("attack") ? "border-red-500/50 bg-red-950/30" : eCard.type.includes("defend") ? "border-blue-500/50 bg-blue-950/30" : "border-purple-500/50 bg-purple-950/30"}` }, /* @__PURE__ */ React.createElement("div", { className: "font-black text-lg md:text-xl mb-3 text-white drop-shadow-md" }, eCard.name), /* @__PURE__ */ React.createElement("div", { className: "text-xs md:text-sm text-slate-200 bg-black/60 p-3 rounded-xl relative leading-relaxed border border-slate-700/50 flex items-center h-full" }, /* @__PURE__ */ React.createElement("div", { className: "w-full text-center" }, eCard.desc, " ", renderTooltipIcon(eCard.desc)))))))))));
+  };
+  const renderShop = () => {
+    const hpCost = 50 + (shopUpgrades?.maxHp || 0) * 40;
+    const filteredUpgrades = (unlockedCards || []).filter((id) => {
+      const c = CARD_LIBRARY.find((card) => card.id === id);
+      if (!c) return false;
+      if (shopSearchQuery && !c.name.toLowerCase().includes(shopSearchQuery.toLowerCase())) return false;
+      return true;
+    });
+    return /* @__PURE__ */ React.createElement("div", { className: "flex flex-col min-h-[100dvh] bg-slate-900 text-white pt-16 md:pt-4 p-4 md:p-10 relative" }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-between items-center mb-8 w-full max-w-6xl mx-auto" }, /* @__PURE__ */ React.createElement("h2", { className: "text-2xl md:text-3xl font-bold flex items-center gap-3" }, /* @__PURE__ */ React.createElement(Store, { className: "w-8 h-8 text-yellow-500" }), " \uD06C\uB808\uB527 \uC0C1\uC810"), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-4" }, /* @__PURE__ */ React.createElement("span", { className: "text-xl font-bold text-yellow-400 flex items-center gap-2" }, /* @__PURE__ */ React.createElement(Coins, { className: "w-6 h-6" }), " ", credits), /* @__PURE__ */ React.createElement("button", { onClick: () => setGameState("MENU"), className: "py-2 px-4 bg-indigo-600 hover:bg-indigo-500 rounded-lg font-bold shadow-md" }, "\uBA54\uC778\uC73C\uB85C"))), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-1 lg:grid-cols-4 gap-6 w-full max-w-6xl mx-auto overflow-y-auto hide-scrollbar pb-10" }, /* @__PURE__ */ React.createElement("div", { className: "bg-slate-800 p-6 rounded-xl border-2 border-slate-600 flex flex-col items-center text-center shadow-lg" }, /* @__PURE__ */ React.createElement(Heart, { className: "w-16 h-16 text-red-500 mb-4" }), /* @__PURE__ */ React.createElement("h3", { className: "text-2xl font-bold mb-2" }, "\uCD5C\uB300 \uCCB4\uB825 \uC99D\uAC00"), /* @__PURE__ */ React.createElement("p", { className: "text-slate-400 mb-6 text-sm" }, "\uC2DC\uC791 \uCD5C\uB300 \uCCB4\uB825\uC744 \uC601\uAD6C\uC801\uC73C\uB85C 15 \uC99D\uAC00\uC2DC\uD0B5\uB2C8\uB2E4."), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick: () => {
+          if (credits >= hpCost) {
+            setCredits((prev) => prev - hpCost);
+            setShopUpgrades((prev) => ({ ...prev, maxHp: prev.maxHp + 1 }));
+            saveGame({ credits: credits - hpCost, shopUpgrades: { ...shopUpgrades, maxHp: shopUpgrades.maxHp + 1 } });
+            setToastMsg("\uCD5C\uB300 \uCCB4\uB825\uC774 \uC99D\uAC00\uD588\uC2B5\uB2C8\uB2E4!");
+          }
+        },
+        className: `mt-auto py-3 px-8 rounded-lg font-bold w-full ${credits >= hpCost ? "bg-yellow-600 hover:bg-yellow-500" : "bg-slate-700 text-slate-500 cursor-not-allowed"}`
+      },
+      hpCost,
+      " \uD06C\uB808\uB527"
+    )), /* @__PURE__ */ React.createElement("div", { className: "bg-slate-800 p-4 rounded-xl border-2 border-slate-600 lg:col-span-3 flex flex-col shadow-lg" }, /* @__PURE__ */ React.createElement("h3", { className: "text-xl font-bold mb-4 flex items-center gap-2" }, /* @__PURE__ */ React.createElement(Zap, { className: "w-6 h-6 text-yellow-400" }), " \uCE74\uB4DC \uC601\uAD6C \uAC15\uD654"), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 overflow-y-auto pr-2" }, filteredUpgrades.map((id) => {
+      const upgradeLevel = (shopUpgrades?.upgradedCards || []).filter((c) => c === id).length;
+      const cardDef = getCardDef(id);
+      if (!cardDef) return null;
+      const upgradeCost = 100 + upgradeLevel * 50;
+      return /* @__PURE__ */ React.createElement("div", { key: id, className: "p-4 rounded-xl border border-slate-600 bg-slate-900 flex flex-col justify-between" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "flex justify-between items-start mb-2" }, /* @__PURE__ */ React.createElement("span", { className: "font-bold text-lg" }, cardDef.name), /* @__PURE__ */ React.createElement("span", { className: "text-xs bg-slate-700 px-2 py-1 rounded" }, "Lv.", upgradeLevel))), /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: () => {
+            if (credits >= upgradeCost && upgradeLevel < 5) {
+              setCredits((prev) => prev - upgradeCost);
+              const newUpgraded = [...shopUpgrades.upgradedCards, id];
+              setShopUpgrades((prev) => ({ ...prev, upgradedCards: newUpgraded }));
+              saveGame({ credits: credits - upgradeCost, shopUpgrades: { ...shopUpgrades, upgradedCards: newUpgraded } });
+              setToastMsg(`${cardDef.name} \uAC15\uD654 \uC644\uB8CC!`);
+            }
+          },
+          className: `mt-4 py-2 rounded-lg text-sm font-bold ${credits >= upgradeCost && upgradeLevel < 5 ? "bg-indigo-600" : "bg-slate-700 text-slate-500"}`
+        },
+        upgradeLevel >= 5 ? "\uCD5C\uB300 \uB808\uBCA8" : `${upgradeCost} \uD06C\uB808\uB527`
+      ));
+    })))));
+  };
+  const renderDeckBuilder = () => {
+    return /* @__PURE__ */ React.createElement("div", { className: "flex flex-col h-[100dvh] bg-slate-900 text-white p-4 md:p-10 relative" }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-between items-center mb-8 w-full max-w-6xl mx-auto" }, /* @__PURE__ */ React.createElement("h2", { className: "text-2xl md:text-3xl font-bold" }, "\uB371 \uAD6C\uC131 (", getTotalCards(tempDeckCounts), "/20)"), /* @__PURE__ */ React.createElement("div", { className: "flex gap-3" }, /* @__PURE__ */ React.createElement("button", { onClick: () => {
+      setDeckCounts(tempDeckCounts);
+      setGameState("MENU");
+      saveGame({ deckCounts: tempDeckCounts });
+    }, className: "py-2 px-6 bg-emerald-600 hover:bg-emerald-500 rounded-lg font-bold shadow-md" }, "\uC800\uC7A5"), /* @__PURE__ */ React.createElement("button", { onClick: () => setGameState("MENU"), className: "py-2 px-4 bg-slate-700 hover:bg-slate-600 rounded-lg font-bold shadow-md" }, "\uCDE8\uC18C"))), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4 overflow-y-auto hide-scrollbar pb-10 w-full max-w-6xl mx-auto px-4" }, CARD_LIBRARY.map((baseCard) => {
+      const count = tempDeckCounts[baseCard.id] || 0;
+      const card = getCardDef(baseCard.id);
+      return /* @__PURE__ */ React.createElement("div", { key: baseCard.id, className: "relative group" }, /* @__PURE__ */ React.createElement("div", { onClick: () => handleAddCard(baseCard.id), className: "cursor-pointer" }, renderCard(card)), /* @__PURE__ */ React.createElement("div", { className: "absolute -top-2 -right-2 bg-indigo-500 w-8 h-8 rounded-full flex items-center justify-center font-bold border-2 border-white shadow-lg" }, count), count > 0 && /* @__PURE__ */ React.createElement("button", { onClick: (e) => {
+        e.stopPropagation();
+        handleRemoveCard(baseCard.id);
+      }, className: "absolute -bottom-2 -left-2 bg-red-600 p-1.5 rounded-lg border-2 border-white shadow-lg" }, /* @__PURE__ */ React.createElement(Trash2, { className: "w-4 h-4 text-white" })));
+    })));
+  };
+  const renderBattle = () => {
+    if (!combatState) return null;
+    const { player, enemies, hand, turn, stage } = combatState;
+    const isPlayerTurn = turn === "PLAYER";
+    return /* @__PURE__ */ React.createElement("div", { className: "flex flex-col h-[100dvh] bg-slate-900 text-white p-4 relative overflow-hidden" }, /* @__PURE__ */ React.createElement("div", { className: "flex justify-between items-center bg-slate-800/80 p-3 rounded-lg border border-slate-700 shadow-md z-20" }, /* @__PURE__ */ React.createElement("div", { className: "font-bold text-indigo-300" }, "STAGE ", stage), /* @__PURE__ */ React.createElement("div", { className: "flex gap-4" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement(Heart, { className: "text-red-500 w-5 h-5" }), " ", player.hp, "/", player.maxHp), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement(Shield, { className: "text-blue-400 w-5 h-5" }), " ", player.block), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2" }, /* @__PURE__ */ React.createElement(Zap, { className: "text-yellow-400 w-5 h-5" }), " ", player.mana))), /* @__PURE__ */ React.createElement("div", { className: "flex-1 flex flex-row justify-center items-center gap-20 relative z-10" }, /* @__PURE__ */ React.createElement("div", { className: `transition-all duration-500 ${isPlayerTurn ? "scale-110" : "scale-100 opacity-70"}` }, /* @__PURE__ */ React.createElement("div", { className: "w-32 h-32 bg-slate-700 rounded-full flex items-center justify-center border-4 border-indigo-500 shadow-2xl relative" }, /* @__PURE__ */ React.createElement(Shield, { className: "w-16 h-16 text-indigo-300" }))), /* @__PURE__ */ React.createElement("div", { className: "text-4xl font-black text-slate-700 italic" }, "VS"), /* @__PURE__ */ React.createElement("div", { className: "flex flex-wrap gap-8 justify-center" }, enemies.map((enemy, idx) => /* @__PURE__ */ React.createElement("div", { key: idx, className: `transition-all duration-500 ${!isPlayerTurn ? "scale-110" : "scale-100 opacity-70"}` }, /* @__PURE__ */ React.createElement(Skull, { className: `w-24 h-24 ${enemy.isBoss ? "text-red-300" : "text-red-500"}` }), /* @__PURE__ */ React.createElement("div", { className: "text-center font-bold mt-2" }, enemy.name), /* @__PURE__ */ React.createElement("div", { className: "w-full bg-slate-800 h-2 rounded-full overflow-hidden mt-1 border border-slate-600" }, /* @__PURE__ */ React.createElement("div", { className: "bg-red-500 h-full transition-all", style: { width: `${enemy.hp / enemy.maxHp * 100}%` } })))))), /* @__PURE__ */ React.createElement("div", { className: "h-64 flex flex-col items-center justify-end pb-10 gap-6 z-20" }, /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 -mb-4" }, hand.map((card, idx) => /* @__PURE__ */ React.createElement("div", { key: idx, onClick: () => playCard(idx), className: "cursor-pointer transition-transform hover:-translate-y-8" }, renderCard(card)))), /* @__PURE__ */ React.createElement("button", { onClick: handlePlayerTurnEnd, disabled: !isPlayerTurn, className: `py-3 px-10 rounded-full font-black text-xl shadow-xl border-2 transition-all ${isPlayerTurn ? "bg-amber-600 border-amber-400 hover:bg-amber-500 text-white" : "bg-slate-800 border-slate-700 text-slate-500 cursor-not-allowed"}` }, isPlayerTurn ? "\uD134 \uC885\uB8CC" : "\uC801 \uD589\uB3D9 \uC911...")));
+  };
+  const renderSettings = () => /* @__PURE__ */ React.createElement("div", { className: "flex flex-col min-h-[100dvh] bg-slate-900 text-white p-8" }, /* @__PURE__ */ React.createElement("h2", { className: "text-3xl font-bold mb-8 flex items-center gap-3" }, /* @__PURE__ */ React.createElement(Settings, { className: "w-8 h-8" }), " \uAC8C\uC784 \uC124\uC815"), /* @__PURE__ */ React.createElement("div", { className: "w-full max-w-2xl mx-auto space-y-6" }, /* @__PURE__ */ React.createElement("div", { className: "bg-slate-800 p-6 rounded-xl border border-slate-700 flex justify-between items-center" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "font-bold text-lg" }, "\uBE60\uB978 \uC804\uD22C \uBAA8\uB4DC"), /* @__PURE__ */ React.createElement("div", { className: "text-sm text-slate-400" }, "\uC804\uD22C \uC560\uB2C8\uBA54\uC774\uC158 \uC18D\uB3C4\uB97C \uB300\uD3ED \uB192\uC785\uB2C8\uB2E4.")), /* @__PURE__ */ React.createElement("button", { onClick: () => setFastMode(!fastMode), className: `w-14 h-8 rounded-full transition-colors relative ${fastMode ? "bg-indigo-600" : "bg-slate-600"}` }, /* @__PURE__ */ React.createElement("div", { className: `w-6 h-6 bg-white rounded-full absolute top-1 transition-all ${fastMode ? "left-7" : "left-1"}` }))), /* @__PURE__ */ React.createElement("div", { className: "flex gap-4" }, /* @__PURE__ */ React.createElement("button", { onClick: handleExport, className: "flex-1 py-4 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold flex items-center justify-center gap-2" }, /* @__PURE__ */ React.createElement(Download, null), " \uC138\uC774\uBE0C \uBCF5\uC0AC"), /* @__PURE__ */ React.createElement("button", { onClick: () => setImportModalOpen(true), className: "flex-1 py-4 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold flex items-center justify-center gap-2" }, /* @__PURE__ */ React.createElement(Upload, null), " \uC138\uC774\uBE0C \uBD88\uB7EC\uC624\uAE30")), /* @__PURE__ */ React.createElement("button", { onClick: () => setGameState("MENU"), className: "w-full py-4 bg-indigo-600 hover:bg-indigo-500 rounded-xl font-bold text-xl mt-10" }, "\uB3CC\uC544\uAC00\uAE30")));
+  const renderBossClearReward = () => {
+    if (!specialBossRewardCard) return null;
+    return /* @__PURE__ */ React.createElement("div", { className: "flex flex-col items-center justify-center min-h-[100dvh] bg-slate-900 text-white p-4 relative z-50" }, /* @__PURE__ */ React.createElement("h2", { className: "text-4xl md:text-5xl font-black mb-4 text-fuchsia-400 tracking-wider text-center drop-shadow-[0_0_20px_rgba(217,70,239,0.8)] animate-bounce" }, "\uD2B9\uC218 \uBCF4\uC2A4 \uCC98\uCE58 \uBCF4\uC0C1!"), /* @__PURE__ */ React.createElement("p", { className: "text-lg md:text-xl mb-10 text-slate-300 text-center" }, "\uC555\uB3C4\uC801\uC778 \uC801\uC744 \uBB3C\uB9AC\uCE5C \uC99D\uD45C\uB85C", /* @__PURE__ */ React.createElement("br", null), "\uC0C8\uB85C\uC6B4 \uD2B9\uC218 \uCE74\uB4DC\uB97C \uD68D\uB4DD\uD588\uC2B5\uB2C8\uB2E4."), /* @__PURE__ */ React.createElement("div", { className: "relative group w-48 h-64 md:w-64 md:h-80 mb-10 animate-draw" }, /* @__PURE__ */ React.createElement("div", { className: "pointer-events-none w-full h-full scale-125 md:scale-150 origin-top" }, renderCard(specialBossRewardCard)), /* @__PURE__ */ React.createElement("div", { className: "absolute inset-0 border-4 border-fuchsia-500/50 rounded-xl pointer-events-none scale-125 md:scale-150 animate-pulse" })), /* @__PURE__ */ React.createElement("button", { onClick: handleSpecialBossRewardClaim, className: "px-10 py-4 bg-fuchsia-700 hover:bg-fuchsia-600 rounded-full font-bold text-xl md:text-2xl transition-colors shadow-[0_0_25px_rgba(217,70,239,0.8)] mt-10 md:mt-24" }, "\uC218\uB77D\uD558\uAE30"));
+  };
+  const renderGameClear = () => /* @__PURE__ */ React.createElement("div", { className: "flex flex-col items-center justify-center min-h-[100dvh] bg-slate-900 text-white p-4" }, /* @__PURE__ */ React.createElement(Trophy, { className: "w-32 h-32 text-yellow-400 mb-6 animate-bounce drop-shadow-[0_0_20px_rgba(250,204,21,0.8)]" }), /* @__PURE__ */ React.createElement("h1", { className: "text-5xl md:text-6xl font-black mb-4 text-yellow-400 tracking-widest text-center drop-shadow-[0_0_20px_rgba(250,204,21,0.5)]" }, "GAME CLEAR!"), /* @__PURE__ */ React.createElement("p", { className: "text-xl md:text-2xl mb-12 text-slate-300" }, "\uBAA8\uB4E0 100\uAC1C\uC758 \uC2A4\uD14C\uC774\uC9C0\uB97C \uC815\uBCF5\uD588\uC2B5\uB2C8\uB2E4!"), /* @__PURE__ */ React.createElement("button", { onClick: () => setGameState("MENU"), className: "py-4 px-12 bg-indigo-600 hover:bg-indigo-500 rounded-full text-2xl font-bold transition-all shadow-[0_0_20px_rgba(79,70,229,0.8)]" }, "\uBA54\uC778 \uBA54\uB274\uB85C \uB3CC\uC544\uAC00\uAE30"));
+  const renderGameOver = () => /* @__PURE__ */ React.createElement("div", { className: "flex flex-col items-center justify-center min-h-[100dvh] bg-slate-900 text-white p-4" }, /* @__PURE__ */ React.createElement(Skull, { className: "w-24 h-24 md:w-32 md:h-32 text-red-500 mb-6 drop-shadow-[0_0_20px_rgba(239,68,68,0.8)]" }), /* @__PURE__ */ React.createElement("h1", { className: "text-5xl md:text-6xl font-black mb-4 text-red-500 tracking-widest text-center drop-shadow-[0_0_15px_rgba(239,68,68,0.5)]" }, "GAME OVER"), /* @__PURE__ */ React.createElement("p", { className: "text-lg md:text-xl mb-12 text-slate-400" }, "\uB3C4\uB2EC\uD55C \uC2A4\uD14C\uC774\uC9C0: ", /* @__PURE__ */ React.createElement("span", { className: "text-white font-bold" }, combatState?.stage)), /* @__PURE__ */ React.createElement("button", { onClick: () => setGameState("MENU"), className: "py-3 px-8 md:py-4 md:px-10 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-xl md:text-2xl font-bold transition-all shadow-[0_0_20px_rgba(79,70,229,0.4)]" }, "\uBA54\uC778 \uBA54\uB274\uB85C \uB3CC\uC544\uAC00\uAE30"));
+  return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("style", null, styles), /* @__PURE__ */ React.createElement("div", { id: "game-root", className: `font-sans antialiased selection:bg-indigo-500 selection:text-white ${isCssFullScreen ? "fixed inset-0 z-[999999] w-[100vw] h-[100vh] overflow-auto" : ""}` }, gameState === "MENU" && renderMenu(), gameState === "SETTINGS" && renderSettings(), gameState === "ENCYCLOPEDIA" && renderEncyclopedia(), gameState === "RELIC_DEX" && renderRelicDex(), gameState === "MONSTER_DEX" && renderMonsterDex(), gameState === "SHOP" && renderShop(), gameState === "DECK_BUILDING" && renderDeckBuilder(), gameState === "BATTLE" && renderBattle(), gameState === "REWARDS" && renderRewards(), gameState === "RELIC_REWARD_INTRO" && renderRelicRewardIntro(), gameState === "RELIC_REWARD_REVEAL" && renderRelicRewardReveal(), gameState === "REWARD_CARD" && renderRewardCard(), gameState === "REWARD_REMOVE" && renderRewardRemove(), gameState === "BOSS_CLEAR_REWARD" && renderBossClearReward(), gameState === "GAME_CLEAR" && renderGameClear(), gameState === "GAME_OVER" && renderGameOver()));
+}
+const rootEl = document.getElementById("root");
+createRoot(rootEl).render(/* @__PURE__ */ React.createElement(App, null));
+
+</script>
+</body>
+</html>
